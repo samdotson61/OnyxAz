@@ -1,6 +1,6 @@
 import { normalizePath, Notice, TFile } from "obsidian";
 import { AdoManager } from "./adoManager";
-import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, IGNORE_FILE_PATH, STATE_FILE_PATH } from "../constants";
+import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, STATE_FILE_PATH } from "../constants";
 import type { AdoFile, FileStatus, LogEntry, SyncState, SyncStatus } from "../types";
 import type OnyxAz from "../main";
 
@@ -33,9 +33,15 @@ export class AdoApiManager extends AdoManager {
     }
 
     async listBranches(): Promise<string[]> {
-        const resp = await this.apiFetch(
-            `${this.baseUrl}/refs?filter=heads/&api-version=${ADO_API_VERSION}`
-        );
+        return this.listBranchesFor(this.plugin.settings.project, this.plugin.settings.repository);
+    }
+
+    async listBranchesFor(project: string, repo: string): Promise<string[]> {
+        const org = this.plugin.settings.organizationUrl.replace(/\/$/, "");
+        const url =
+            `${org}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}` +
+            `/refs?filter=heads/&api-version=${ADO_API_VERSION}`;
+        const resp = await this.apiFetch(url);
         const data = resp.json;
         return (data.value ?? []).map((r: { name: string }) => r.name.replace("refs/heads/", ""));
     }
@@ -243,9 +249,9 @@ export class AdoApiManager extends AdoManager {
 
     // ── Push ─────────────────────────────────────────────────────────────────
 
-    async push(message: string): Promise<void> {
-        const status = await this.getStatus();
-        if (status.changed.length === 0) return;
+    async push(message: string, changes?: FileStatus[]): Promise<void> {
+        const changedFiles = changes ?? (await this.getStatus()).changed;
+        if (changedFiles.length === 0) return;
 
         const [latestCommitId, remoteTree] = await Promise.all([
             this.getLatestCommitId(),
@@ -254,11 +260,11 @@ export class AdoApiManager extends AdoManager {
 
         const remotePathSet = new Set(remoteTree.map((f) => f.path.replace(/^\//, "")));
         const maxBytes = this.plugin.settings.maxAttachmentSizeMB * 1024 * 1024;
-        const changes: object[] = [];
+        const pushChanges: object[] = [];
 
-        for (const fileStatus of status.changed) {
+        for (const fileStatus of changedFiles) {
             if (fileStatus.status === "D") {
-                changes.push({
+                pushChanges.push({
                     changeType: "delete",
                     item: { path: `/${fileStatus.path}` },
                 });
@@ -278,7 +284,7 @@ export class AdoApiManager extends AdoManager {
                 continue;
             }
 
-            changes.push({
+            pushChanges.push({
                 changeType: remotePathSet.has(fileStatus.path) ? "edit" : "add",
                 item: { path: `/${fileStatus.path}` },
                 newContent: {
@@ -288,13 +294,13 @@ export class AdoApiManager extends AdoManager {
             });
         }
 
-        if (changes.length === 0) return;
+        if (pushChanges.length === 0) return;
 
         const payload = {
             refUpdates: [
                 { name: `refs/heads/${this.plugin.settings.branch}`, oldObjectId: latestCommitId },
             ],
-            commits: [{ comment: message, changes }],
+            commits: [{ comment: message, changes: pushChanges }],
         };
 
         await this.apiFetch(`${this.baseUrl}/pushes?api-version=${ADO_API_VERSION}`, {

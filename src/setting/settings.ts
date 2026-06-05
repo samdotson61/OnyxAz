@@ -195,8 +195,8 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
         };
 
         new Setting(containerEl)
-            .setName("Auto commit-and-sync interval")
-            .setDesc("Pull then push on a schedule.")
+            .setName("Auto pull interval")
+            .setDesc("Pull remote changes on a schedule. Push always requires manual confirmation.")
             .addDropdown((dd) => {
                 for (const [v, l] of Object.entries(intervalOpts)) dd.addOption(v, l);
                 dd.setValue(String(this.plugin.settings.autoSyncInterval)).onChange(async (v) => {
@@ -207,8 +207,8 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("Auto pull interval")
-            .setDesc("Pull-only schedule.")
+            .setName("Second auto pull interval")
+            .setDesc("Additional independent pull schedule.")
             .addDropdown((dd) => {
                 for (const [v, l] of Object.entries(intervalOpts)) dd.addOption(v, l);
                 dd.setValue(String(this.plugin.settings.autoPullInterval)).onChange(async (v) => {

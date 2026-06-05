@@ -2,16 +2,14 @@ import { App, Modal, Notice, Setting } from "obsidian";
 import type OnyxAz from "../main";
 import { ONYX_AZ_DEFAULT_CLIENT_ID } from "../constants";
 import type { DeviceCodeResponse } from "../auth/entraAuth";
+import { RepoTreeModal } from "./repoTreeModal";
 
-type Step = "welcome" | "signin" | "project" | "repository" | "branch" | "done";
+type Step = "welcome" | "signin" | "browse" | "done";
 
 export class OnboardingModal extends Modal {
     private step: Step = "welcome";
     private deviceCode: DeviceCodeResponse | null = null;
     private authFlowActive = false;
-    private projects: string[] = [];
-    private repos: string[] = [];
-    private branches: string[] = [];
 
     constructor(app: App, private readonly plugin: OnyxAz) {
         super(app);
@@ -19,9 +17,9 @@ export class OnboardingModal extends Modal {
     }
 
     onOpen(): void {
-        // If already signed in (e.g. re-opening onboarding), skip to project step
+        // If already signed in, skip straight to browse
         if (this.plugin.entraAuth.isSignedIn && this.plugin.settings.organizationUrl) {
-            this.step = "project";
+            this.step = "browse";
         }
         this.render();
     }
@@ -37,23 +35,19 @@ export class OnboardingModal extends Modal {
         this.contentEl.empty();
         this.titleEl.setText(this.titleForStep());
         switch (this.step) {
-            case "welcome":    this.renderWelcome(); break;
-            case "signin":     this.renderSignIn(); break;
-            case "project":    this.renderProject(); break;
-            case "repository": this.renderRepository(); break;
-            case "branch":     this.renderBranch(); break;
-            case "done":       this.renderDone(); break;
+            case "welcome": this.renderWelcome(); break;
+            case "signin":  this.renderSignIn(); break;
+            case "browse":  this.renderBrowse(); break;
+            case "done":    this.renderDone(); break;
         }
     }
 
     private titleForStep(): string {
         switch (this.step) {
-            case "welcome":    return "Connect to Azure DevOps";
-            case "signin":     return "Sign in with Microsoft";
-            case "project":    return "Select Project";
-            case "repository": return "Select Repository";
-            case "branch":     return "Select Branch";
-            case "done":       return "You're all set!";
+            case "welcome": return "Connect to Azure DevOps";
+            case "signin":  return "Sign in with Microsoft";
+            case "browse":  return "Select Repository";
+            case "done":    return "You're all set!";
         }
     }
 
@@ -178,8 +172,7 @@ export class OnboardingModal extends Modal {
 
                         this.authFlowActive = false;
                         this.deviceCode = null;
-                        this.step = "project";
-                        await this.loadProjects();
+                        this.step = "browse";
                         this.render();
                     } catch (e) {
                         this.authFlowActive = false;
@@ -192,164 +185,57 @@ export class OnboardingModal extends Modal {
         });
     }
 
-    // ── Step 3: Project ───────────────────────────────────────────────────────
+    // ── Step 3: Browse project / repo / branch ────────────────────────────────
 
-    private async loadProjects(): Promise<void> {
-        try {
-            this.projects = await this.plugin.adoManager.listProjects();
-        } catch {
-            this.projects = [];
-        }
-    }
-
-    private renderProject(): void {
+    private renderBrowse(): void {
         const { contentEl } = this;
+        const s = this.plugin.settings;
 
-        if (this.projects.length === 0) {
-            contentEl.createEl("p", { text: "Loading projects…" });
-            this.loadProjects().then(() => this.render());
-            return;
-        }
-
-        let selected = this.plugin.settings.project || this.projects[0];
-
-        new Setting(contentEl)
-            .setName("Project")
-            .setDesc("The Azure DevOps project containing your repository.")
-            .addDropdown((dd) => {
-                for (const p of this.projects) dd.addOption(p, p);
-                dd.setValue(selected).onChange((v) => { selected = v; });
+        if (s.project && s.repository && s.branch) {
+            contentEl.createEl("p", {
+                text: `Connected to: ${s.project} / ${s.repository}  ·  ${s.branch}`,
+                cls: "onyxaz-push-destination",
             });
+        } else {
+            contentEl.createEl("p", {
+                text: "Browse your Azure DevOps projects and pick a repository branch to sync with.",
+            });
+        }
 
         this.navButtons(contentEl, {
             back: { label: "← Back", onClick: () => { this.step = "signin"; this.render(); } },
             next: {
-                label: "Next →",
+                label: s.project ? "Change repository…" : "Browse repositories →",
                 cta: true,
-                onClick: async () => {
-                    this.plugin.settings.project = selected;
-                    await this.plugin.saveSettings();
-                    this.repos = await this.plugin.adoManager.listRepositories(selected).catch(() => []);
-                    this.step = "repository";
-                    this.render();
-                },
-            },
-        });
-    }
-
-    // ── Step 4: Repository ────────────────────────────────────────────────────
-
-    private renderRepository(): void {
-        const { contentEl } = this;
-
-        if (this.repos.length === 0) {
-            contentEl.createEl("p", { text: "No repositories found in this project." });
-            this.navButtons(contentEl, {
-                back: { label: "← Back", onClick: () => { this.step = "project"; this.render(); } },
-            });
-            return;
-        }
-
-        let selected = this.plugin.settings.repository || this.repos[0];
-
-        new Setting(contentEl)
-            .setName("Repository")
-            .setDesc("The Git repository to sync this vault with.")
-            .addDropdown((dd) => {
-                for (const r of this.repos) dd.addOption(r, r);
-                dd.setValue(selected).onChange((v) => { selected = v; });
-            });
-
-        this.navButtons(contentEl, {
-            back: { label: "← Back", onClick: () => { this.step = "project"; this.render(); } },
-            next: {
-                label: "Next →",
-                cta: true,
-                onClick: async () => {
-                    this.plugin.settings.repository = selected;
-                    await this.plugin.saveSettings();
-                    this.branches = await this.plugin.adoManager.listBranches().catch(() => []);
-                    this.step = "branch";
-                    this.render();
-                },
-            },
-        });
-    }
-
-    // ── Step 5: Branch ────────────────────────────────────────────────────────
-
-    private renderBranch(): void {
-        const { contentEl } = this;
-
-        // Offer dropdown if we have branches, else a text input
-        if (this.branches.length > 0) {
-            let selected = this.branches.includes(this.plugin.settings.branch)
-                ? this.plugin.settings.branch
-                : this.branches[0];
-
-            new Setting(contentEl)
-                .setName("Branch")
-                .setDesc("Branch to sync with.")
-                .addDropdown((dd) => {
-                    for (const b of this.branches) dd.addOption(b, b);
-                    dd.setValue(selected).onChange((v) => { selected = v; });
-                });
-
-            this.navButtons(contentEl, {
-                back: { label: "← Back", onClick: () => { this.step = "repository"; this.render(); } },
-                next: {
-                    label: "Finish",
-                    cta: true,
-                    onClick: async () => {
-                        this.plugin.settings.branch = selected;
-                        await this.finishOnboarding();
-                    },
-                },
-            });
-        } else {
-            let branch = this.plugin.settings.branch || "main";
-
-            new Setting(contentEl)
-                .setName("Branch")
-                .addText((t) =>
-                    t
-                        .setPlaceholder("main")
-                        .setValue(branch)
-                        .onChange((v) => { branch = v.trim() || "main"; })
-                );
-
-            this.navButtons(contentEl, {
-                back: { label: "← Back", onClick: () => { this.step = "repository"; this.render(); } },
-                next: {
-                    label: "Finish",
-                    cta: true,
-                    onClick: async () => {
+                onClick: (btn) => {
+                    btn.disabled = true;
+                    new RepoTreeModal(this.app, this.plugin, async (project, repo, branch) => {
+                        this.plugin.settings.project = project;
+                        this.plugin.settings.repository = repo;
                         this.plugin.settings.branch = branch;
+                        await this.plugin.saveSettings();
                         await this.finishOnboarding();
-                    },
+                    }).open();
                 },
-            });
-        }
+            },
+        });
     }
 
-    // ── Step 6: Done ──────────────────────────────────────────────────────────
+    // ── Step 4: Done ─────────────────────────────────────────────────────────
 
     private renderDone(): void {
         const { contentEl } = this;
         const s = this.plugin.settings;
 
         contentEl.createEl("p", {
-            text: `Your vault is now connected to ${s.project} / ${s.repository} on branch ${s.branch}.`,
+            text: `Your vault is connected to ${s.project} / ${s.repository} on branch ${s.branch}.`,
         });
         contentEl.createEl("p", {
-            text: "OnyxAz will sync automatically. You can adjust the schedule in Settings → OnyxAz.",
+            text: "Pull from the ribbon icon (or Settings → OnyxAz → Pull on startup). Push requires confirmation — nothing is sent automatically.",
         });
 
         this.navButtons(contentEl, {
-            next: {
-                label: "Close",
-                onClick: () => this.close(),
-            },
+            next: { label: "Close", onClick: () => this.close() },
         });
     }
 

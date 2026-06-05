@@ -1,6 +1,6 @@
 import { Notice, Plugin, addIcon } from "obsidian";
 import { DEFAULT_SETTINGS } from "./constants";
-import type { OnyxAzSettings, SyncStatus } from "./types";
+import type { FileStatus, OnyxAzSettings, SyncStatus } from "./types";
 import { CurrentAdoAction } from "./types";
 import { AdoApiManager } from "./adoManager/adoApiManager";
 import type { AdoManager } from "./adoManager/adoManager";
@@ -10,6 +10,7 @@ import { PromiseQueue } from "./promiseQueue";
 import { StatusBar } from "./statusBar";
 import { OnyxAzSettingsTab } from "./setting/settings";
 import { OnboardingModal } from "./ui/onboardingModal";
+import { ConfirmPushModal } from "./ui/confirmPushModal";
 
 const ONYXAZ_ICON = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
   <rect x="10" y="10" width="80" height="80" rx="10" fill="none" stroke="currentColor" stroke-width="8"/>
@@ -151,24 +152,62 @@ export default class OnyxAz extends Plugin {
 
     // ── Core operations ───────────────────────────────────────────────────────
 
+    // Pull remote changes then show confirmation before pushing local changes.
+    // Status is captured BEFORE pull so pulled files never appear as deletions.
     async commitAndSync(): Promise<void> {
         if (!this.isConfigured()) {
             new Notice("OnyxAz: Finish setup — open Settings → OnyxAz.");
             return;
         }
-        this.setState(CurrentAdoAction.sync);
+
+        // 1. Capture local changes before pulling
+        this.setState(CurrentAdoAction.status);
+        let prePullChanges: FileStatus[];
         try {
-            const status = await this.adoManager.getStatus();
-            const message = this.adoManager.buildCommitMessage(status.changed.length);
-            await this.adoManager.commitAndSync(message);
+            prePullChanges = (await this.adoManager.getStatus()).changed;
+        } catch (e) {
+            this.displayError(e);
+            this.setState(CurrentAdoAction.idle);
+            return;
+        }
+
+        // 2. Pull first
+        this.setState(CurrentAdoAction.pull);
+        try {
+            const n = await this.adoManager.pull();
             this.cachedStatus = null;
-            if (this.settings.notifyOnSuccess) new Notice("OnyxAz: Sync complete.");
+            if (this.settings.notifyOnSuccess && n > 0) {
+                new Notice(`OnyxAz: Pulled ${n} file(s).`);
+            }
             this.app.workspace.trigger("onyxaz:refresh");
         } catch (e) {
             this.displayError(e);
-        } finally {
             this.setState(CurrentAdoAction.idle);
+            return;
         }
+        this.setState(CurrentAdoAction.idle);
+
+        // 3. If nothing was locally changed, we're done
+        if (prePullChanges.length === 0) {
+            if (this.settings.notifyOnSuccess) new Notice("OnyxAz: Already up to date.");
+            return;
+        }
+
+        // 4. Ask user to confirm before pushing
+        const message = this.adoManager.buildCommitMessage(prePullChanges.length);
+        new ConfirmPushModal(this.app, this, prePullChanges, message, async (msg) => {
+            this.setState(CurrentAdoAction.push);
+            try {
+                await this.adoManager.push(msg, prePullChanges);
+                this.cachedStatus = null;
+                if (this.settings.notifyOnSuccess) new Notice("OnyxAz: Push complete.");
+                this.app.workspace.trigger("onyxaz:refresh");
+            } catch (e) {
+                this.displayError(e);
+            } finally {
+                this.setState(CurrentAdoAction.idle);
+            }
+        }).open();
     }
 
     async pull(): Promise<void> {
@@ -196,25 +235,36 @@ export default class OnyxAz extends Plugin {
             new Notice("OnyxAz: Finish setup — open Settings → OnyxAz.");
             return;
         }
-        this.setState(CurrentAdoAction.push);
+        this.setState(CurrentAdoAction.status);
+        let changes: FileStatus[];
         try {
-            const status = await this.adoManager.getStatus();
-            if (status.changed.length === 0) {
-                new Notice("OnyxAz: Nothing to push.");
-                return;
-            }
-            const message = this.adoManager.buildCommitMessage(status.changed.length);
-            await this.adoManager.push(message);
-            this.cachedStatus = null;
-            if (this.settings.notifyOnSuccess) {
-                new Notice(`OnyxAz: Pushed ${status.changed.length} file(s).`);
-            }
-            this.app.workspace.trigger("onyxaz:refresh");
+            changes = (await this.adoManager.getStatus()).changed;
         } catch (e) {
             this.displayError(e);
-        } finally {
             this.setState(CurrentAdoAction.idle);
+            return;
         }
+        this.setState(CurrentAdoAction.idle);
+
+        if (changes.length === 0) {
+            new Notice("OnyxAz: Nothing to push.");
+            return;
+        }
+
+        const message = this.adoManager.buildCommitMessage(changes.length);
+        new ConfirmPushModal(this.app, this, changes, message, async (msg) => {
+            this.setState(CurrentAdoAction.push);
+            try {
+                await this.adoManager.push(msg, changes);
+                this.cachedStatus = null;
+                if (this.settings.notifyOnSuccess) new Notice(`OnyxAz: Pushed ${changes.length} file(s).`);
+                this.app.workspace.trigger("onyxaz:refresh");
+            } catch (e) {
+                this.displayError(e);
+            } finally {
+                this.setState(CurrentAdoAction.idle);
+            }
+        }).open();
     }
 
     // ── Status bar ────────────────────────────────────────────────────────────

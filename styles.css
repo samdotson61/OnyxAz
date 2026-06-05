@@ -39,3 +39,105 @@
     color: var(--text-muted);
     margin: 4px 0 12px;
 }
+
+/* ── Confirm push modal ──────────────────────────────────────────────── */
+.onyxaz-confirm-push .modal-content {
+    min-width: 480px;
+    max-width: 600px;
+    padding: 24px;
+}
+.onyxaz-push-destination {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    margin: 0 0 12px;
+}
+.onyxaz-label {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    display: block;
+    margin: 12px 0 4px;
+}
+.onyxaz-commit-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: var(--font-text-size);
+}
+.onyxaz-file-group { margin: 8px 0; }
+.onyxaz-file-group-header {
+    padding: 4px 0;
+    font-weight: 600;
+    font-size: var(--font-smaller);
+    user-select: none;
+}
+.onyxaz-added   .onyxaz-file-group-header { color: var(--color-green); }
+.onyxaz-modified .onyxaz-file-group-header { color: var(--color-yellow); }
+.onyxaz-deleted  .onyxaz-file-group-header { color: var(--color-red); }
+.onyxaz-chevron { display: inline-block; width: 12px; }
+.onyxaz-file-list {
+    margin: 2px 0 4px 16px;
+    padding: 0;
+    list-style: none;
+    max-height: 160px;
+    overflow-y: auto;
+}
+.onyxaz-file-item {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    padding: 1px 0;
+    font-family: var(--font-monospace);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Repo tree modal ─────────────────────────────────────────────────── */
+.onyxaz-repo-tree-modal .modal-content {
+    min-width: 520px;
+    max-width: 640px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 70vh;
+}
+.onyxaz-tree-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px 8px;
+}
+.onyxaz-tree-footer {
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 12px 20px;
+}
+.onyxaz-tree-selection-info {
+    font-size: var(--font-smaller);
+    min-height: 20px;
+    margin-bottom: 8px;
+}
+.onyxaz-selected-label {
+    font-weight: 600;
+    color: var(--text-accent);
+}
+.onyxaz-tree-node { margin: 2px 0; }
+.onyxaz-tree-row {
+    display: flex;
+    align-items: center;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+.onyxaz-tree-row:hover { background: var(--background-modifier-hover); }
+.onyxaz-tree-selected {
+    background: var(--background-modifier-active-hover) !important;
+    color: var(--text-accent);
+}
+.onyxaz-tree-children { padding-left: 20px; }
+.onyxaz-tree-project > .onyxaz-tree-row { font-weight: 600; }
+.onyxaz-tree-repo > .onyxaz-tree-row { font-size: var(--font-smaller); }
+.onyxaz-tree-branch { font-size: var(--font-smaller); color: var(--text-muted); }
+.onyxaz-tree-indent { padding-left: 24px; }

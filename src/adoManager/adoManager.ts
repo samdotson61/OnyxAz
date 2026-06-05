@@ -12,10 +12,11 @@ export abstract class AdoManager {
     abstract testConnection(): Promise<void>;
     abstract getStatus(): Promise<SyncStatus>;
     abstract pull(): Promise<number>;
-    abstract push(message: string): Promise<void>;
+    abstract push(message: string, changes?: import("../types").FileStatus[]): Promise<void>;
     abstract commitAndSync(message: string): Promise<void>;
     abstract getLog(count: number): Promise<LogEntry[]>;
     abstract listBranches(): Promise<string[]>;
+    abstract listBranchesFor(project: string, repo: string): Promise<string[]>;
     abstract switchBranch(branch: string): Promise<void>;
     abstract listProjects(): Promise<string[]>;
     abstract listRepositories(project: string): Promise<string[]>;

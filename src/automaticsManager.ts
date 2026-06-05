@@ -21,17 +21,17 @@ export class AutomaticsManager {
         const s = this.plugin.settings;
 
         if (s.autoSyncInterval > 0) {
-            this.scheduledSync(s.autoSyncInterval * 60 * 1000);
+            this.scheduledPull(s.autoSyncInterval * 60 * 1000, "sync");
         }
 
         if (s.autoPullInterval > 0) {
-            this.schedulePull(s.autoPullInterval * 60 * 1000);
+            this.scheduledPull(s.autoPullInterval * 60 * 1000, "pull");
         }
 
         if (s.autoSyncOnSave) {
             this.saveDebounce = debounce(
                 () => {
-                    this.plugin.promiseQueue.addTask(() => this.plugin.commitAndSync());
+                    this.plugin.promiseQueue.addTask(() => this.plugin.pull());
                 },
                 s.autoSyncOnSaveDebounceMs,
                 true
@@ -44,20 +44,19 @@ export class AutomaticsManager {
         }
     }
 
-    private scheduledSync(ms: number): void {
+    private scheduledPull(ms: number, source: "sync" | "pull"): void {
         const delay = Math.min(ms, MAX_TIMEOUT);
-        this.syncTimeout = setTimeout(() => {
-            this.plugin.promiseQueue.addTask(() => this.plugin.commitAndSync());
-            this.scheduledSync(this.plugin.settings.autoSyncInterval * 60 * 1000);
+        const handle = setTimeout(() => {
+            if (this.plugin.isConfigured()) {
+                this.plugin.promiseQueue.addTask(() => this.plugin.pull());
+            }
+            const nextMs = source === "sync"
+                ? this.plugin.settings.autoSyncInterval * 60 * 1000
+                : this.plugin.settings.autoPullInterval * 60 * 1000;
+            this.scheduledPull(nextMs, source);
         }, delay);
-    }
-
-    private schedulePull(ms: number): void {
-        const delay = Math.min(ms, MAX_TIMEOUT);
-        this.pullTimeout = setTimeout(() => {
-            this.plugin.promiseQueue.addTask(() => this.plugin.pull());
-            this.schedulePull(this.plugin.settings.autoPullInterval * 60 * 1000);
-        }, delay);
+        if (source === "sync") this.syncTimeout = handle;
+        else this.pullTimeout = handle;
     }
 
     pause(): void {
