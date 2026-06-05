@@ -1,14 +1,22 @@
 import type { OnyxAzSettings } from "./types";
 
+// ── Org admin fills these in before distributing the plugin ──────────────────
+// Register an Azure app (multi-tenant, public client, device code flow enabled,
+// Azure DevOps → user_impersonation delegated permission) and paste the IDs here.
+// When set, end-users never see a Client ID field — they just click "Sign in".
+export const ONYX_AZ_DEFAULT_CLIENT_ID = "";   // e.g. "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+export const ONYX_AZ_DEFAULT_TENANT_ID = "organizations"; // or your specific tenant GUID
+
 export const DEFAULT_SETTINGS: OnyxAzSettings = {
+    hasCompletedOnboarding: false,
     organizationUrl: "",
     project: "",
     repository: "",
     branch: "main",
-    authMethod: "pat",
+    authMethod: "entra",           // Microsoft SSO is the default
     pat: "",
     entraClientId: "",
-    entraTenantId: "organizations",
+    entraTenantId: ONYX_AZ_DEFAULT_TENANT_ID,
     entraAccessToken: "",
     entraRefreshToken: "",
     entraTokenExpiry: 0,

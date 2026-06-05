@@ -1,6 +1,8 @@
 export type AuthMethod = "pat" | "entra";
 
 export interface OnyxAzSettings {
+    // Onboarding
+    hasCompletedOnboarding: boolean;
     // Connection
     organizationUrl: string;
     project: string;

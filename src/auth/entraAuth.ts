@@ -1,4 +1,10 @@
-import { ENTRA_DEVICE_CODE_URL, ENTRA_SCOPE, ENTRA_TOKEN_URL } from "../constants";
+import {
+    ENTRA_DEVICE_CODE_URL,
+    ENTRA_SCOPE,
+    ENTRA_TOKEN_URL,
+    ONYX_AZ_DEFAULT_CLIENT_ID,
+    ONYX_AZ_DEFAULT_TENANT_ID,
+} from "../constants";
 import type OnyxAz from "../main";
 
 export interface DeviceCodeResponse {
@@ -24,20 +30,33 @@ export class EntraAuth {
 
     constructor(private readonly plugin: OnyxAz) {}
 
+    // ── Resolved helpers (settings fall back to compiled-in defaults) ─────────
+
+    private get clientId(): string {
+        return this.plugin.settings.entraClientId || ONYX_AZ_DEFAULT_CLIENT_ID;
+    }
+
+    private get tenantId(): string {
+        return this.plugin.settings.entraTenantId || ONYX_AZ_DEFAULT_TENANT_ID;
+    }
+
     // ── Sign-in flow ──────────────────────────────────────────────────────────
 
     async startDeviceCodeFlow(): Promise<DeviceCodeResponse> {
-        const { entraClientId, entraTenantId } = this.plugin.settings;
-        if (!entraClientId) {
-            throw new Error("Azure App Client ID is required. Enter it in OnyxAz settings.");
+        if (!this.clientId) {
+            throw new Error(
+                "No Azure App Client ID configured. " +
+                "Ask your admin to set ONYX_AZ_DEFAULT_CLIENT_ID in the plugin, " +
+                "or enter your own Client ID in Settings → OnyxAz → Advanced."
+            );
         }
 
         const body = new URLSearchParams({
-            client_id: entraClientId,
+            client_id: this.clientId,
             scope: ENTRA_SCOPE,
         });
 
-        const resp = await fetch(ENTRA_DEVICE_CODE_URL(entraTenantId || "organizations"), {
+        const resp = await fetch(ENTRA_DEVICE_CODE_URL(this.tenantId), {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: body.toString(),
@@ -52,11 +71,8 @@ export class EntraAuth {
     }
 
     async pollForToken(dcr: DeviceCodeResponse): Promise<void> {
-        const { entraClientId, entraTenantId } = this.plugin.settings;
         this.polling = true;
-
         const expiresAt = Date.now() + dcr.expires_in * 1000;
-        // ADO's minimum poll interval is 5s; respect what the server says
         const intervalMs = Math.max((dcr.interval ?? 5) * 1000, 5000);
 
         while (this.polling && Date.now() < expiresAt) {
@@ -65,11 +81,11 @@ export class EntraAuth {
 
             const body = new URLSearchParams({
                 grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-                client_id: entraClientId,
+                client_id: this.clientId,
                 device_code: dcr.device_code,
             });
 
-            const resp = await fetch(ENTRA_TOKEN_URL(entraTenantId || "organizations"), {
+            const resp = await fetch(ENTRA_TOKEN_URL(this.tenantId), {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: body.toString(),
@@ -105,13 +121,15 @@ export class EntraAuth {
     async getValidAccessToken(): Promise<string> {
         const s = this.plugin.settings;
         if (!s.entraAccessToken) {
-            throw new Error("Not signed in. Use 'Sign in with Microsoft' in OnyxAz settings.");
+            throw new Error(
+                "Not signed in. Open Settings → OnyxAz and click 'Sign in with Microsoft'."
+            );
         }
         if (Date.now() < s.entraTokenExpiry) {
             return s.entraAccessToken;
         }
         if (!s.entraRefreshToken) {
-            throw new Error("Session expired. Please sign in again via OnyxAz settings.");
+            throw new Error("Session expired. Please sign in again via Settings → OnyxAz.");
         }
         return this.refreshAccessToken();
     }
@@ -120,24 +138,23 @@ export class EntraAuth {
         const s = this.plugin.settings;
         const body = new URLSearchParams({
             grant_type: "refresh_token",
-            client_id: s.entraClientId,
+            client_id: this.clientId,
             refresh_token: s.entraRefreshToken,
             scope: ENTRA_SCOPE,
         });
 
-        const resp = await fetch(ENTRA_TOKEN_URL(s.entraTenantId || "organizations"), {
+        const resp = await fetch(ENTRA_TOKEN_URL(this.tenantId), {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: body.toString(),
         });
 
         if (!resp.ok) {
-            // Wipe tokens so the user is prompted to sign in again
             s.entraAccessToken = "";
             s.entraRefreshToken = "";
             s.entraTokenExpiry = 0;
             await this.plugin.saveSettings();
-            throw new Error("Token refresh failed. Please sign in again.");
+            throw new Error("Token refresh failed. Please sign in again via Settings → OnyxAz.");
         }
 
         const data = (await resp.json()) as TokenResponse;
@@ -163,7 +180,6 @@ export class EntraAuth {
         const s = this.plugin.settings;
         s.entraAccessToken = token.access_token;
         if (token.refresh_token) s.entraRefreshToken = token.refresh_token;
-        // Subtract 60s to refresh slightly before actual expiry
         s.entraTokenExpiry = Date.now() + token.expires_in * 1000 - 60_000;
         await this.plugin.saveSettings();
     }

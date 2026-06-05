@@ -1,15 +1,41 @@
-.onyxaz-statusbar-message {
+.onyxaz-statusbar-message { color: var(--text-muted); }
+.onyxaz-statusbar-idle    { color: var(--text-muted); }
+.onyxaz-statusbar-sync    { color: var(--color-blue); }
+.onyxaz-statusbar-error   { color: var(--color-red); }
+
+/* Onboarding modal */
+.onyxaz-onboarding .modal-content {
+    min-width: 460px;
+    max-width: 520px;
+    padding: 24px;
+}
+
+.onyxaz-onboarding .onyxaz-code-box {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 16px;
+    margin: 12px 0;
+    line-height: 1.8;
+}
+
+.onyxaz-onboarding .onyxaz-user-code,
+.onyxaz-code-box .onyxaz-user-code {
+    font-size: 1.4em;
+    font-weight: bold;
+    letter-spacing: 0.15em;
+    color: var(--text-accent);
+}
+
+.onyxaz-nav-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.onyxaz-hint {
+    font-size: var(--font-smaller);
     color: var(--text-muted);
-}
-
-.onyxaz-statusbar-idle {
-    color: var(--text-muted);
-}
-
-.onyxaz-statusbar-sync {
-    color: var(--color-blue);
-}
-
-.onyxaz-statusbar-error {
-    color: var(--color-red);
+    margin: 4px 0 12px;
 }

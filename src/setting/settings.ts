@@ -1,11 +1,13 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type OnyxAz from "../main";
 import type { DeviceCodeResponse } from "../auth/entraAuth";
+import { ONYX_AZ_DEFAULT_CLIENT_ID } from "../constants";
+import { OnboardingModal } from "../ui/onboardingModal";
 
 export class OnyxAzSettingsTab extends PluginSettingTab {
-    // Tracks active device code flow so the UI can show the code inline
     private deviceCode: DeviceCodeResponse | null = null;
     private authFlowActive = false;
+    private showAdvanced = false;
 
     constructor(app: App, private readonly plugin: OnyxAz) {
         super(app, plugin);
@@ -15,12 +17,107 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        // ── Azure DevOps Connection ──────────────────────────────────────────
-        containerEl.createEl("h2", { text: "Azure DevOps Connection" });
+        this.renderAccountSection(containerEl);
+        this.renderConnectionSection(containerEl);
+        this.renderAutomationSection(containerEl);
+        this.renderCommitSection(containerEl);
+        this.renderMiscSection(containerEl);
+        this.renderAdvancedSection(containerEl);
+    }
+
+    // ── Account (Microsoft sign-in — primary) ─────────────────────────────────
+
+    private renderAccountSection(containerEl: HTMLElement): void {
+        containerEl.createEl("h2", { text: "Account" });
+
+        if (this.authFlowActive && this.deviceCode) {
+            const box = containerEl.createDiv({ cls: "onyxaz-code-box" });
+            box.createEl("p", { text: "Complete sign-in in your browser:" });
+            box.createEl("span", { text: "1. Open: " });
+            box.createEl("a", {
+                text: this.deviceCode.verification_uri,
+                href: this.deviceCode.verification_uri,
+            }).setAttr("target", "_blank");
+            box.createEl("br");
+            box.createEl("span", { text: "2. Enter code: " });
+            box.createEl("code", { text: this.deviceCode.user_code, cls: "onyxaz-user-code" });
+
+            new Setting(containerEl)
+                .setName("Waiting for sign-in…")
+                .addButton((btn) =>
+                    btn.setButtonText("Cancel").onClick(() => {
+                        this.plugin.entraAuth.cancelPoll();
+                        this.authFlowActive = false;
+                        this.deviceCode = null;
+                        this.display();
+                    })
+                );
+            return;
+        }
+
+        if (this.plugin.entraAuth.isSignedIn) {
+            new Setting(containerEl)
+                .setName("Signed in with Microsoft")
+                .setDesc("Your session refreshes automatically in the background.")
+                .addButton((btn) =>
+                    btn.setButtonText("Sign out").onClick(async () => {
+                        await this.plugin.entraAuth.signOut();
+                        new Notice("OnyxAz: Signed out.");
+                        this.display();
+                    })
+                );
+        } else {
+            new Setting(containerEl)
+                .setName("Microsoft account")
+                .setDesc("Sign in with your work account to sync with Azure DevOps.")
+                .addButton((btn) =>
+                    btn
+                        .setButtonText("Sign in with Microsoft")
+                        .setCta()
+                        .onClick(async () => {
+                            btn.setButtonText("Starting…");
+                            btn.setDisabled(true);
+                            try {
+                                const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
+                                this.deviceCode = dcr;
+                                this.authFlowActive = true;
+                                this.display();
+
+                                await this.plugin.entraAuth.pollForToken(dcr);
+
+                                this.authFlowActive = false;
+                                this.deviceCode = null;
+                                this.display();
+                                new Notice("OnyxAz: Signed in with Microsoft successfully.");
+                            } catch (e) {
+                                this.authFlowActive = false;
+                                this.deviceCode = null;
+                                this.display();
+                                new Notice(`OnyxAz: Sign-in failed — ${(e as Error).message}`);
+                            }
+                        })
+                );
+        }
+    }
+
+    // ── Connection ────────────────────────────────────────────────────────────
+
+    private renderConnectionSection(containerEl: HTMLElement): void {
+        containerEl.createEl("h2", { text: "Azure DevOps" });
+
+        // Quick re-run setup wizard
+        new Setting(containerEl)
+            .setName("Run setup wizard")
+            .setDesc("Re-run the step-by-step connection wizard.")
+            .addButton((btn) =>
+                btn.setButtonText("Open wizard").onClick(() => {
+                    new OnboardingModal(this.app, this.plugin).open();
+                })
+            );
 
         new Setting(containerEl)
             .setName("Organization URL")
-            .setDesc("https://dev.azure.com/myorg")
+            .setDesc("e.g. https://dev.azure.com/myorg")
             .addText((t) =>
                 t
                     .setPlaceholder("https://dev.azure.com/myorg")
@@ -33,10 +130,8 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Project")
-            .setDesc("Azure DevOps project name.")
             .addText((t) =>
                 t
-                    .setPlaceholder("MyProject")
                     .setValue(this.plugin.settings.project)
                     .onChange(async (v) => {
                         this.plugin.settings.project = v.trim();
@@ -46,10 +141,8 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Repository")
-            .setDesc("Git repository name within the project.")
             .addText((t) =>
                 t
-                    .setPlaceholder("my-vault-repo")
                     .setValue(this.plugin.settings.repository)
                     .onChange(async (v) => {
                         this.plugin.settings.repository = v.trim();
@@ -69,33 +162,8 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                     })
             );
 
-        // ── Authentication ───────────────────────────────────────────────────
-        containerEl.createEl("h2", { text: "Authentication" });
-
-        new Setting(containerEl)
-            .setName("Auth method")
-            .setDesc("Personal Access Token is simpler; Microsoft Entra lets you sign in with your work account.")
-            .addDropdown((dd) =>
-                dd
-                    .addOption("pat", "Personal Access Token (PAT)")
-                    .addOption("entra", "Microsoft Entra (work account)")
-                    .setValue(this.plugin.settings.authMethod)
-                    .onChange(async (v) => {
-                        this.plugin.settings.authMethod = v as "pat" | "entra";
-                        await this.plugin.saveSettings();
-                        this.display();
-                    })
-            );
-
-        if (this.plugin.settings.authMethod === "pat") {
-            this.renderPatSection(containerEl);
-        } else {
-            this.renderEntraSection(containerEl);
-        }
-
         new Setting(containerEl)
             .setName("Test connection")
-            .setDesc("Verify credentials and repository access.")
             .addButton((btn) =>
                 btn
                     .setButtonText("Test")
@@ -114,23 +182,21 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                         }
                     })
             );
+    }
 
-        // ── Automation ───────────────────────────────────────────────────────
+    // ── Automation ────────────────────────────────────────────────────────────
+
+    private renderAutomationSection(containerEl: HTMLElement): void {
         containerEl.createEl("h2", { text: "Automation" });
 
         const intervalOpts: Record<string, string> = {
-            "0": "Disabled",
-            "1": "1 minute",
-            "5": "5 minutes",
-            "10": "10 minutes",
-            "15": "15 minutes",
-            "30": "30 minutes",
-            "60": "1 hour",
+            "0": "Disabled", "1": "1 minute", "5": "5 minutes",
+            "10": "10 minutes", "15": "15 minutes", "30": "30 minutes", "60": "1 hour",
         };
 
         new Setting(containerEl)
             .setName("Auto commit-and-sync interval")
-            .setDesc("Pull then push on a schedule. 0 = disabled.")
+            .setDesc("Pull then push on a schedule.")
             .addDropdown((dd) => {
                 for (const [v, l] of Object.entries(intervalOpts)) dd.addOption(v, l);
                 dd.setValue(String(this.plugin.settings.autoSyncInterval)).onChange(async (v) => {
@@ -142,7 +208,7 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Auto pull interval")
-            .setDesc("Pull-only schedule. 0 = disabled.")
+            .setDesc("Pull-only schedule.")
             .addDropdown((dd) => {
                 for (const [v, l] of Object.entries(intervalOpts)) dd.addOption(v, l);
                 dd.setValue(String(this.plugin.settings.autoPullInterval)).onChange(async (v) => {
@@ -154,7 +220,7 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Auto sync on save")
-            .setDesc("Trigger a commit-and-sync after you stop editing a file.")
+            .setDesc("Sync after you stop editing a file.")
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoSyncOnSave).onChange(async (v) => {
                     this.plugin.settings.autoSyncOnSave = v;
@@ -167,7 +233,7 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
         if (this.plugin.settings.autoSyncOnSave) {
             new Setting(containerEl)
                 .setName("On-save debounce (ms)")
-                .setDesc("Wait this many ms after the last keystroke before syncing.")
+                .setDesc("Wait this long after last keystroke before syncing.")
                 .addText((t) =>
                     t
                         .setPlaceholder("10000")
@@ -181,8 +247,11 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                         })
                 );
         }
+    }
 
-        // ── Commit message ────────────────────────────────────────────────────
+    // ── Commit message ────────────────────────────────────────────────────────
+
+    private renderCommitSection(containerEl: HTMLElement): void {
         containerEl.createEl("h2", { text: "Commit Message" });
 
         new Setting(containerEl)
@@ -200,7 +269,7 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Date format")
-            .setDesc("For {{date}}. Tokens: YYYY MM DD HH mm ss")
+            .setDesc("Tokens: YYYY MM DD HH mm ss")
             .addText((t) =>
                 t
                     .setPlaceholder("YYYY-MM-DD HH:mm:ss")
@@ -210,8 +279,11 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     })
             );
+    }
 
-        // ── Miscellaneous ─────────────────────────────────────────────────────
+    // ── Misc ──────────────────────────────────────────────────────────────────
+
+    private renderMiscSection(containerEl: HTMLElement): void {
         containerEl.createEl("h2", { text: "Miscellaneous" });
 
         new Setting(containerEl)
@@ -253,7 +325,7 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Max attachment size (MB)")
-            .setDesc("Files larger than this are skipped during push. Images and PDFs only.")
+            .setDesc("Files larger than this are skipped during push.")
             .addText((t) =>
                 t
                     .setPlaceholder("5")
@@ -268,45 +340,76 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
             );
     }
 
-    // ── PAT section ───────────────────────────────────────────────────────────
+    // ── Advanced (collapsed by default) ──────────────────────────────────────
 
-    private renderPatSection(containerEl: HTMLElement): void {
+    private renderAdvancedSection(containerEl: HTMLElement): void {
+        const header = containerEl.createEl("h2", {
+            text: `Advanced ${this.showAdvanced ? "▲" : "▼"}`,
+        });
+        header.style.cursor = "pointer";
+        header.style.userSelect = "none";
+        header.addEventListener("click", () => {
+            this.showAdvanced = !this.showAdvanced;
+            this.display();
+        });
+
+        if (!this.showAdvanced) return;
+
+        containerEl.createEl("p", {
+            cls: "onyxaz-hint",
+            text: "Use a Personal Access Token instead of Microsoft sign-in, or override the Azure App Client ID.",
+        });
+
         new Setting(containerEl)
-            .setName("Personal Access Token")
-            .setDesc("Requires Code (Read & Write) scope. Stored locally in your vault data.")
-            .addText((t) => {
-                t.inputEl.type = "password";
-                t
-                    .setPlaceholder("Paste your PAT here")
-                    .setValue(this.plugin.settings.pat)
+            .setName("Auth method")
+            .setDesc("Switch to PAT if your org blocks the device code flow.")
+            .addDropdown((dd) =>
+                dd
+                    .addOption("entra", "Microsoft Entra (recommended)")
+                    .addOption("pat", "Personal Access Token")
+                    .setValue(this.plugin.settings.authMethod)
                     .onChange(async (v) => {
-                        this.plugin.settings.pat = v.trim();
+                        this.plugin.settings.authMethod = v as "pat" | "entra";
                         await this.plugin.saveSettings();
-                    });
-            });
-    }
-
-    // ── Entra section ─────────────────────────────────────────────────────────
-
-    private renderEntraSection(containerEl: HTMLElement): void {
-        new Setting(containerEl)
-            .setName("Azure App Client ID")
-            .setDesc(
-                "Client ID of an Azure app registration with Azure DevOps → Code (Read & Write) delegated permission and the device code public client flow enabled."
-            )
-            .addText((t) =>
-                t
-                    .setPlaceholder("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
-                    .setValue(this.plugin.settings.entraClientId)
-                    .onChange(async (v) => {
-                        this.plugin.settings.entraClientId = v.trim();
-                        await this.plugin.saveSettings();
+                        this.display();
                     })
             );
 
+        if (this.plugin.settings.authMethod === "pat") {
+            new Setting(containerEl)
+                .setName("Personal Access Token")
+                .setDesc("Requires Code (Read & Write) scope.")
+                .addText((t) => {
+                    t.inputEl.type = "password";
+                    t
+                        .setPlaceholder("Paste your PAT here")
+                        .setValue(this.plugin.settings.pat)
+                        .onChange(async (v) => {
+                            this.plugin.settings.pat = v.trim();
+                            await this.plugin.saveSettings();
+                        });
+                });
+        }
+
+        // Show Client ID field only when there's no compiled-in default
+        if (!ONYX_AZ_DEFAULT_CLIENT_ID) {
+            new Setting(containerEl)
+                .setName("Azure App Client ID")
+                .setDesc("Override the default Azure app registration used for sign-in.")
+                .addText((t) =>
+                    t
+                        .setPlaceholder("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+                        .setValue(this.plugin.settings.entraClientId)
+                        .onChange(async (v) => {
+                            this.plugin.settings.entraClientId = v.trim();
+                            await this.plugin.saveSettings();
+                        })
+                );
+        }
+
         new Setting(containerEl)
             .setName("Tenant ID")
-            .setDesc('Your Azure tenant ID, or "organizations" for any work account.')
+            .setDesc('"organizations" works for most accounts.')
             .addText((t) =>
                 t
                     .setPlaceholder("organizations")
@@ -316,79 +419,5 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     })
             );
-
-        if (this.authFlowActive && this.deviceCode) {
-            // Show the device code inline so the user doesn't have to hunt for it
-            const box = containerEl.createDiv({ cls: "setting-item" });
-            box.style.flexDirection = "column";
-            box.style.alignItems = "flex-start";
-            box.style.gap = "8px";
-
-            box.createEl("p", {
-                text: `1. Open this URL in your browser:`,
-            });
-            const link = box.createEl("a", {
-                text: this.deviceCode.verification_uri,
-                href: this.deviceCode.verification_uri,
-            });
-            link.setAttr("target", "_blank");
-
-            box.createEl("p", {
-                text: `2. Enter this code: `,
-            }).createEl("strong", { text: this.deviceCode.user_code });
-
-            new Setting(containerEl)
-                .setName("Waiting for Microsoft sign-in…")
-                .addButton((btn) =>
-                    btn.setButtonText("Cancel").onClick(() => {
-                        this.plugin.entraAuth.cancelPoll();
-                        this.authFlowActive = false;
-                        this.deviceCode = null;
-                        this.display();
-                    })
-                );
-        } else if (this.plugin.entraAuth.isSignedIn) {
-            new Setting(containerEl)
-                .setName("Signed in with Microsoft")
-                .setDesc("Entra credentials are active. They refresh automatically.")
-                .addButton((btn) =>
-                    btn.setButtonText("Sign out").onClick(async () => {
-                        await this.plugin.entraAuth.signOut();
-                        new Notice("OnyxAz: Signed out.");
-                        this.display();
-                    })
-                );
-        } else {
-            new Setting(containerEl)
-                .setName("Microsoft sign-in")
-                .setDesc("Opens a device code flow — no redirect required.")
-                .addButton((btn) =>
-                    btn
-                        .setButtonText("Sign in with Microsoft")
-                        .setCta()
-                        .onClick(async () => {
-                            btn.setButtonText("Starting…");
-                            btn.setDisabled(true);
-                            try {
-                                const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
-                                this.deviceCode = dcr;
-                                this.authFlowActive = true;
-                                this.display(); // re-render to show the code
-
-                                await this.plugin.entraAuth.pollForToken(dcr);
-
-                                this.authFlowActive = false;
-                                this.deviceCode = null;
-                                this.display();
-                                new Notice("OnyxAz: Signed in with Microsoft successfully.");
-                            } catch (e) {
-                                this.authFlowActive = false;
-                                this.deviceCode = null;
-                                this.display();
-                                new Notice(`OnyxAz: Sign-in failed — ${(e as Error).message}`);
-                            }
-                        })
-                );
-        }
     }
 }

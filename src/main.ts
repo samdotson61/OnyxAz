@@ -9,6 +9,7 @@ import { EntraAuth } from "./auth/entraAuth";
 import { PromiseQueue } from "./promiseQueue";
 import { StatusBar } from "./statusBar";
 import { OnyxAzSettingsTab } from "./setting/settings";
+import { OnboardingModal } from "./ui/onboardingModal";
 
 const ONYXAZ_ICON = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
   <rect x="10" y="10" width="80" height="80" rx="10" fill="none" stroke="currentColor" stroke-width="8"/>
@@ -49,7 +50,10 @@ export default class OnyxAz extends Plugin {
         this.registerCommands();
 
         this.app.workspace.onLayoutReady(async () => {
-            if (this.settings.pullOnStartup && this.isConfigured()) {
+            if (!this.settings.hasCompletedOnboarding) {
+                // First install — guide the user through setup
+                new OnboardingModal(this.app, this).open();
+            } else if (this.settings.pullOnStartup && this.isConfigured()) {
                 this.promiseQueue.addTask(() => this.pull());
             }
             this.automaticsManager.init();
@@ -99,7 +103,7 @@ export default class OnyxAz extends Plugin {
             name: "List changed files",
             callback: async () => {
                 if (!this.isConfigured()) {
-                    new Notice("OnyxAz: Configure connection settings first.");
+                    new Notice("OnyxAz: Finish setup first — open Settings → OnyxAz.");
                     return;
                 }
                 try {
@@ -136,7 +140,7 @@ export default class OnyxAz extends Plugin {
             callback: () => {
                 const s = this.settings;
                 if (!s.organizationUrl || !s.project || !s.repository) {
-                    new Notice("OnyxAz: Configure connection settings first.");
+                    new Notice("OnyxAz: Finish setup first — open Settings → OnyxAz.");
                     return;
                 }
                 const url = `${s.organizationUrl.replace(/\/$/, "")}/${encodeURIComponent(s.project)}/_git/${encodeURIComponent(s.repository)}`;
@@ -149,7 +153,7 @@ export default class OnyxAz extends Plugin {
 
     async commitAndSync(): Promise<void> {
         if (!this.isConfigured()) {
-            new Notice("OnyxAz: Configure your Azure DevOps connection in settings.");
+            new Notice("OnyxAz: Finish setup — open Settings → OnyxAz.");
             return;
         }
         this.setState(CurrentAdoAction.sync);
@@ -169,7 +173,7 @@ export default class OnyxAz extends Plugin {
 
     async pull(): Promise<void> {
         if (!this.isConfigured()) {
-            new Notice("OnyxAz: Configure your Azure DevOps connection in settings.");
+            new Notice("OnyxAz: Finish setup — open Settings → OnyxAz.");
             return;
         }
         this.setState(CurrentAdoAction.pull);
@@ -189,7 +193,7 @@ export default class OnyxAz extends Plugin {
 
     async push(): Promise<void> {
         if (!this.isConfigured()) {
-            new Notice("OnyxAz: Configure your Azure DevOps connection in settings.");
+            new Notice("OnyxAz: Finish setup — open Settings → OnyxAz.");
             return;
         }
         this.setState(CurrentAdoAction.push);
@@ -235,7 +239,7 @@ export default class OnyxAz extends Plugin {
             this.cachedStatus = await this.adoManager.getStatus();
             this.app.workspace.trigger("onyxaz:status-changed");
         } catch {
-            // silently ignore on startup
+            // ignore on startup
         }
     }
 
@@ -245,7 +249,14 @@ export default class OnyxAz extends Plugin {
         const s = this.settings;
         const hasCredentials =
             s.authMethod === "pat" ? !!s.pat : this.entraAuth.isSignedIn;
-        return !!(s.organizationUrl && s.project && s.repository && s.branch && hasCredentials);
+        return !!(
+            s.hasCompletedOnboarding &&
+            s.organizationUrl &&
+            s.project &&
+            s.repository &&
+            s.branch &&
+            hasCredentials
+        );
     }
 
     private setState(action: CurrentAdoAction): void {
