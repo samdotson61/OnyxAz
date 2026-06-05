@@ -23,8 +23,8 @@ export class StatusBar {
         statusBarEl.setAttribute("data-tooltip-position", "top");
         statusBarEl.style.cursor = "pointer";
         statusBarEl.addEventListener("click", () => {
-            (this.plugin.app as any).setting.open();
-            (this.plugin.app as any).setting.openTabById("onyxaz");
+            if (this.plugin.state.adoAction !== CurrentAdoAction.idle) return;
+            this.plugin.promiseQueue.addTask(() => this.plugin.commitAndSync());
         });
 
         plugin.registerEvent(
@@ -103,17 +103,23 @@ export class StatusBar {
     }
 
     private displayIdle(): void {
-        if (this.lastSyncTimestamp) {
-            const fromNow = moment(this.lastSyncTimestamp).fromNow();
-            this.statusBarEl.ariaLabel = `ADO: Last sync ${fromNow}`;
-        } else {
-            this.statusBarEl.ariaLabel = "ADO: Never synced";
-        }
-        setIcon(this.iconEl, "check");
-        this.statusBarEl.addClass(this.base + "idle");
+        const n = this.plugin.cachedStatus?.changed.length ?? 0;
+        const syncedText = this.lastSyncTimestamp
+            ? `Last sync ${moment(this.lastSyncTimestamp).fromNow()}`
+            : "Never synced";
 
-        if (this.plugin.settings.showChangedFilesCount && this.plugin.cachedStatus) {
-            this.textEl.setText(this.plugin.cachedStatus.changed.length.toString());
+        if (n > 0) {
+            this.statusBarEl.ariaLabel = `ADO: ${n} local change${n !== 1 ? "s" : ""} — click to pull & push`;
+            setIcon(this.iconEl, "upload");
+            this.statusBarEl.addClass(this.base + "sync");
+        } else {
+            this.statusBarEl.ariaLabel = `ADO: ${syncedText} — click to pull`;
+            setIcon(this.iconEl, "check");
+            this.statusBarEl.addClass(this.base + "idle");
+        }
+
+        if (this.plugin.settings.showChangedFilesCount && n > 0) {
+            this.textEl.setText(String(n));
         } else {
             this.textEl.setText("");
         }

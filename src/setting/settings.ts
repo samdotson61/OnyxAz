@@ -182,6 +182,25 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                         }
                     })
             );
+
+        new Setting(containerEl)
+            .setName("Force re-pull")
+            .setDesc("Re-download every file from the remote branch, regardless of local state. Use this if your vault is missing files.")
+            .addButton((btn) =>
+                btn
+                    .setButtonText("Force re-pull")
+                    .onClick(async () => {
+                        btn.setButtonText("Pulling…");
+                        btn.setDisabled(true);
+                        try {
+                            this.plugin.promiseQueue.addTask(() => this.plugin.forcePull());
+                            new Notice("OnyxAz: Force re-pull queued.");
+                        } finally {
+                            btn.setButtonText("Force re-pull");
+                            btn.setDisabled(false);
+                        }
+                    })
+            );
     }
 
     // ── Automation ────────────────────────────────────────────────────────────

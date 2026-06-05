@@ -122,6 +122,12 @@ export default class OnyxAz extends Plugin {
         });
 
         this.addCommand({
+            id: "force-pull",
+            name: "Force re-pull (re-download all remote files)",
+            callback: () => this.promiseQueue.addTask(() => this.forcePull()),
+        });
+
+        this.addCommand({
             id: "toggle-automatics",
             name: "Toggle automatic sync",
             callback: () => {
@@ -208,6 +214,24 @@ export default class OnyxAz extends Plugin {
                 this.setState(CurrentAdoAction.idle);
             }
         }).open();
+    }
+
+    async forcePull(): Promise<void> {
+        if (!this.isConfigured()) {
+            new Notice("OnyxAz: Finish setup — open Settings → OnyxAz.");
+            return;
+        }
+        this.setState(CurrentAdoAction.pull);
+        try {
+            const n = await this.adoManager.forcePull();
+            this.cachedStatus = null;
+            new Notice(`OnyxAz: Force-pulled ${n} file(s) from remote.`);
+            this.app.workspace.trigger("onyxaz:refresh");
+        } catch (e) {
+            this.displayError(e);
+        } finally {
+            this.setState(CurrentAdoAction.idle);
+        }
     }
 
     async pull(): Promise<void> {

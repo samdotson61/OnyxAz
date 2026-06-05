@@ -200,8 +200,10 @@ export class AdoApiManager extends AdoManager {
 
             newRemoteObjectIds[filePath] = remoteFile.objectId;
             const storedObjectId = state?.remoteObjectIds[filePath];
+            const localExists = !!this.plugin.app.vault.getAbstractFileByPath(normalizePath(filePath));
 
-            if (!state || storedObjectId !== remoteFile.objectId) {
+            // Download if: no prior state, objectId changed, OR file is missing locally
+            if (!state || storedObjectId !== remoteFile.objectId || !localExists) {
                 const buffer = await this.getFileContent(remoteFile.path);
                 await this.writeLocalFile(filePath, buffer);
                 filesChanged++;
@@ -329,6 +331,15 @@ export class AdoApiManager extends AdoManager {
     async commitAndSync(message: string): Promise<void> {
         await this.pull();
         await this.push(message);
+    }
+
+    // Force-pull: wipes local state so every remote file is re-downloaded
+    async forcePull(): Promise<number> {
+        this.cachedState = null;
+        const path = normalizePath(".onyxaz/state.json");
+        const existing = this.plugin.app.vault.getAbstractFileByPath(path);
+        if (existing) await this.plugin.app.vault.delete(existing);
+        return this.pull();
     }
 
     // ── History ───────────────────────────────────────────────────────────────
