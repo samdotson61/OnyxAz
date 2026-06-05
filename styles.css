@@ -1,0 +1,15 @@
+.onyxaz-statusbar-message {
+    color: var(--text-muted);
+}
+
+.onyxaz-statusbar-idle {
+    color: var(--text-muted);
+}
+
+.onyxaz-statusbar-sync {
+    color: var(--color-blue);
+}
+
+.onyxaz-statusbar-error {
+    color: var(--color-red);
+}
