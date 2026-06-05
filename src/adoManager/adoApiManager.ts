@@ -144,32 +144,66 @@ export class AdoApiManager extends AdoManager {
         });
     }
 
+    // ── Adapter helpers ───────────────────────────────────────────────────────
+    // vault.getFiles() only returns files Obsidian has indexed (filtered by
+    // extension). The adapter gives the true filesystem view, including .txt etc.
+
+    private async getAllLocalPaths(): Promise<Map<string, number>> {
+        // Primary: vault-indexed files (have mtime)
+        const result = new Map<string, number>();
+        for (const f of this.plugin.app.vault.getFiles()) {
+            if (!this.shouldIgnore(f.path)) result.set(f.path, f.stat.mtime);
+        }
+        // Supplement: adapter scan for any non-indexed files
+        const visit = async (dir: string) => {
+            try {
+                const { files, folders } = await this.plugin.app.vault.adapter.list(dir);
+                for (const p of files) {
+                    if (!this.shouldIgnore(p) && !result.has(p)) {
+                        // No mtime available without an extra stat call; use 0
+                        // so it's treated as "possibly modified" in status logic
+                        result.set(p, 0);
+                    }
+                }
+                for (const folder of folders) {
+                    if (!this.shouldIgnore(folder + "/")) await visit(folder);
+                }
+            } catch { /* skip inaccessible dirs */ }
+        };
+        await visit("");
+        return result;
+    }
+
+    private async readLocalFile(filePath: string): Promise<ArrayBuffer | null> {
+        const p = normalizePath(filePath);
+        const vaultFile = this.plugin.app.vault.getAbstractFileByPath(p);
+        if (vaultFile instanceof TFile) return this.plugin.app.vault.readBinary(vaultFile);
+        try { return await this.plugin.app.vault.adapter.readBinary(p); } catch { return null; }
+    }
+
     // ── Status ───────────────────────────────────────────────────────────────
 
     async getStatus(): Promise<SyncStatus> {
         const state = await this.getSyncState();
-        const localFiles = this.plugin.app.vault.getFiles();
+        const localPaths = await this.getAllLocalPaths(); // path → mtime (0 = unknown)
         const changed: FileStatus[] = [];
 
         if (!state) {
-            for (const file of localFiles) {
-                if (!this.shouldIgnore(file.path)) {
-                    changed.push({ path: file.path, status: "A" });
-                }
+            for (const path of localPaths.keys()) {
+                changed.push({ path, status: "A" });
             }
             return { changed, conflicted: [], ahead: changed.length, behind: 0 };
         }
 
-        const localPaths = new Set(localFiles.map((f) => f.path));
         const syncTime = state.lastSyncTime;
 
-        for (const file of localFiles) {
-            if (this.shouldIgnore(file.path)) continue;
-            const knownRemotely = file.path in state.remoteObjectIds;
+        for (const [path, mtime] of localPaths) {
+            const knownRemotely = path in state.remoteObjectIds;
             if (!knownRemotely) {
-                changed.push({ path: file.path, status: "A" });
-            } else if (file.stat.mtime > syncTime + 1000) {
-                changed.push({ path: file.path, status: "M" });
+                changed.push({ path, status: "A" });
+            } else if (mtime === 0 || mtime > syncTime + 1000) {
+                // mtime=0 means Obsidian didn't index it — treat as potentially modified
+                changed.push({ path, status: "M" });
             }
         }
 
@@ -184,12 +218,33 @@ export class AdoApiManager extends AdoManager {
 
     // ── Pull ─────────────────────────────────────────────────────────────────
 
-    async pull(): Promise<number> {
+    // resolveConflicts: called when remote changed AND local file already exists.
+    // Returns the set of paths the user wants to KEEP locally (skip remote version).
+    async pull(
+        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>
+    ): Promise<number> {
         const [remoteTree, latestCommitId, state] = await Promise.all([
             this.getRemoteFileTree(),
             this.getLatestCommitId(),
             this.getSyncState(),
         ]);
+
+        // Detect which files would overwrite existing local content
+        const conflicts: string[] = [];
+        for (const remoteFile of remoteTree) {
+            const filePath = remoteFile.path.replace(/^\//, "");
+            if (this.shouldIgnore(filePath)) continue;
+            const storedObjectId = state?.remoteObjectIds[filePath];
+            const remoteChanged = !state || storedObjectId !== remoteFile.objectId;
+            if (remoteChanged && state) {
+                const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(filePath));
+                if (localExists) conflicts.push(filePath);
+            }
+        }
+
+        const skipPaths = conflicts.length > 0 && resolveConflicts
+            ? await resolveConflicts(conflicts)
+            : new Set<string>();
 
         let filesChanged = 0;
         const newRemoteObjectIds: Record<string, string> = {};
@@ -200,11 +255,11 @@ export class AdoApiManager extends AdoManager {
 
             newRemoteObjectIds[filePath] = remoteFile.objectId;
             const storedObjectId = state?.remoteObjectIds[filePath];
-            const localExists = !!this.plugin.app.vault.getAbstractFileByPath(normalizePath(filePath));
+            const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(filePath));
 
-            // Download if: no prior state, objectId changed, OR file is missing locally
             if (!state || storedObjectId !== remoteFile.objectId || !localExists) {
-                const buffer = await this.getFileContent(remoteFile.path);
+                if (skipPaths.has(filePath)) continue;
+                const buffer = await this.getFileContent(filePath.startsWith("/") ? filePath : `/${filePath}`);
                 await this.writeLocalFile(filePath, buffer);
                 filesChanged++;
             }
@@ -234,19 +289,16 @@ export class AdoApiManager extends AdoManager {
 
     private async writeLocalFile(filePath: string, buffer: ArrayBuffer): Promise<void> {
         const normalPath = normalizePath(filePath);
+        // Ensure parent directories exist
         const parts = normalPath.split("/");
         for (let i = 1; i < parts.length; i++) {
             const dir = parts.slice(0, i).join("/");
-            if (dir && !this.plugin.app.vault.getAbstractFileByPath(dir)) {
-                await this.plugin.app.vault.createFolder(dir).catch(() => {});
+            if (dir && !(await this.plugin.app.vault.adapter.exists(dir))) {
+                await this.plugin.app.vault.adapter.mkdir(dir).catch(() => {});
             }
         }
-        const existing = this.plugin.app.vault.getAbstractFileByPath(normalPath);
-        if (existing instanceof TFile) {
-            await this.plugin.app.vault.modifyBinary(existing, buffer);
-        } else {
-            await this.plugin.app.vault.createBinary(normalPath, buffer);
-        }
+        // Write via adapter — bypasses Obsidian's extension filter so .txt etc. always land on disk
+        await this.plugin.app.vault.adapter.writeBinary(normalPath, buffer);
     }
 
     // ── Push ─────────────────────────────────────────────────────────────────
@@ -273,14 +325,15 @@ export class AdoApiManager extends AdoManager {
                 continue;
             }
 
-            const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(fileStatus.path));
-            if (!(file instanceof TFile)) continue;
-
-            const buffer = await this.plugin.app.vault.readBinary(file);
+            const buffer = await this.readLocalFile(fileStatus.path);
+            if (!buffer) {
+                new Notice(`OnyxAz: Skipping ${fileStatus.path} — file not readable.`);
+                continue;
+            }
 
             if (buffer.byteLength > maxBytes) {
                 new Notice(
-                    `OnyxAz: Skipping ${file.name} — ${(buffer.byteLength / 1048576).toFixed(1)} MB exceeds the ${this.plugin.settings.maxAttachmentSizeMB} MB limit.`,
+                    `OnyxAz: Skipping ${fileStatus.path} — ${(buffer.byteLength / 1048576).toFixed(1)} MB exceeds the ${this.plugin.settings.maxAttachmentSizeMB} MB limit.`,
                     6000
                 );
                 continue;

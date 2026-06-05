@@ -141,3 +141,45 @@
 .onyxaz-tree-repo > .onyxaz-tree-row { font-size: var(--font-smaller); }
 .onyxaz-tree-branch { font-size: var(--font-smaller); color: var(--text-muted); }
 .onyxaz-tree-indent { padding-left: 24px; }
+
+/* Confirm pull modal */
+.onyxaz-confirm-pull .onyxaz-pull-desc {
+    color: var(--text-muted);
+    font-size: var(--font-smaller);
+    margin-bottom: 12px;
+}
+.onyxaz-pull-list {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    margin-bottom: 12px;
+}
+.onyxaz-pull-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    gap: 12px;
+}
+.onyxaz-pull-row:last-child { border-bottom: none; }
+.onyxaz-pull-row.onyxaz-pull-keep { background: var(--background-modifier-error); }
+.onyxaz-pull-path {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-smaller);
+    font-family: var(--font-monospace);
+}
+.onyxaz-pull-toggle {
+    flex-shrink: 0;
+    min-width: 100px;
+    text-align: center;
+}
+.onyxaz-pull-bulk {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}

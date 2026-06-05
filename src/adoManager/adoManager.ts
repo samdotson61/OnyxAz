@@ -11,7 +11,7 @@ export abstract class AdoManager {
 
     abstract testConnection(): Promise<void>;
     abstract getStatus(): Promise<SyncStatus>;
-    abstract pull(): Promise<number>;
+    abstract pull(resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>): Promise<number>;
     abstract forcePull(): Promise<number>;
     abstract push(message: string, changes?: import("../types").FileStatus[]): Promise<void>;
     abstract commitAndSync(message: string): Promise<void>;

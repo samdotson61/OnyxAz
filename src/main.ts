@@ -11,6 +11,7 @@ import { StatusBar } from "./statusBar";
 import { OnyxAzSettingsTab } from "./setting/settings";
 import { OnboardingModal } from "./ui/onboardingModal";
 import { ConfirmPushModal } from "./ui/confirmPushModal";
+import { ConfirmPullModal } from "./ui/confirmPullModal";
 
 const ONYXAZ_ICON = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
   <rect x="10" y="10" width="80" height="80" rx="10" fill="none" stroke="currentColor" stroke-width="8"/>
@@ -156,6 +157,15 @@ export default class OnyxAz extends Plugin {
         });
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private makeConflictResolver(): (conflicts: string[]) => Promise<Set<string>> {
+        return (conflicts: string[]) =>
+            new Promise<Set<string>>((resolve) => {
+                new ConfirmPullModal(this.app, conflicts, resolve).open();
+            });
+    }
+
     // ── Core operations ───────────────────────────────────────────────────────
 
     // Pull remote changes then show confirmation before pushing local changes.
@@ -180,11 +190,9 @@ export default class OnyxAz extends Plugin {
         // 2. Pull first
         this.setState(CurrentAdoAction.pull);
         try {
-            const n = await this.adoManager.pull();
+            const n = await this.adoManager.pull(this.makeConflictResolver());
             this.cachedStatus = null;
-            if (this.settings.notifyOnSuccess && n > 0) {
-                new Notice(`OnyxAz: Pulled ${n} file(s).`);
-            }
+            new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s).` : "OnyxAz: Already up to date.");
             this.app.workspace.trigger("onyxaz:refresh");
         } catch (e) {
             this.displayError(e);
@@ -241,11 +249,9 @@ export default class OnyxAz extends Plugin {
         }
         this.setState(CurrentAdoAction.pull);
         try {
-            const n = await this.adoManager.pull();
+            const n = await this.adoManager.pull(this.makeConflictResolver());
             this.cachedStatus = null;
-            if (this.settings.notifyOnSuccess) {
-                new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s).` : "OnyxAz: Already up to date.");
-            }
+            new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s).` : "OnyxAz: Already up to date.");
             this.app.workspace.trigger("onyxaz:refresh");
         } catch (e) {
             this.displayError(e);
