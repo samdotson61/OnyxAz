@@ -166,20 +166,19 @@ export class OnboardingModal extends Modal {
                 label: "Sign in with Microsoft",
                 cta: true,
                 onClick: async (btn) => {
-                    btn.setButtonText("Starting…");
-                    btn.setDisabled(true);
+                    btn.textContent = "Starting…";
+                    btn.disabled = true;
                     try {
                         const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
                         this.deviceCode = dcr;
                         this.authFlowActive = true;
-                        this.render(); // show the code
+                        this.render();
 
                         await this.plugin.entraAuth.pollForToken(dcr);
 
                         this.authFlowActive = false;
                         this.deviceCode = null;
                         this.step = "project";
-                        // Load projects immediately
                         await this.loadProjects();
                         this.render();
                     } catch (e) {
