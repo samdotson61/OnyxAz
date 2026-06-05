@@ -1,3 +1,4 @@
+import { requestUrl } from "obsidian";
 import {
     ENTRA_DEVICE_CODE_URL,
     ENTRA_SCOPE,
@@ -56,18 +57,19 @@ export class EntraAuth {
             scope: ENTRA_SCOPE,
         });
 
-        const resp = await fetch(ENTRA_DEVICE_CODE_URL(this.tenantId), {
+        const resp = await requestUrl({
+            url: ENTRA_DEVICE_CODE_URL(this.tenantId),
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: body.toString(),
+            throw: false,
         });
 
-        if (!resp.ok) {
-            const text = await resp.text().catch(() => resp.statusText);
-            throw new Error(`Device code request failed: ${text}`);
+        if (resp.status >= 400) {
+            throw new Error(`Device code request failed: ${resp.text}`);
         }
 
-        return resp.json() as Promise<DeviceCodeResponse>;
+        return resp.json as DeviceCodeResponse;
     }
 
     async pollForToken(dcr: DeviceCodeResponse): Promise<void> {
@@ -85,13 +87,15 @@ export class EntraAuth {
                 device_code: dcr.device_code,
             });
 
-            const resp = await fetch(ENTRA_TOKEN_URL(this.tenantId), {
+            const resp = await requestUrl({
+                url: ENTRA_TOKEN_URL(this.tenantId),
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: body.toString(),
+                throw: false,
             });
 
-            const data = (await resp.json()) as TokenResponse;
+            const data = resp.json as TokenResponse;
 
             if (data.error === "authorization_pending") {
                 continue;
@@ -143,13 +147,15 @@ export class EntraAuth {
             scope: ENTRA_SCOPE,
         });
 
-        const resp = await fetch(ENTRA_TOKEN_URL(this.tenantId), {
+        const resp = await requestUrl({
+            url: ENTRA_TOKEN_URL(this.tenantId),
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: body.toString(),
+            throw: false,
         });
 
-        if (!resp.ok) {
+        if (resp.status >= 400) {
             s.entraAccessToken = "";
             s.entraRefreshToken = "";
             s.entraTokenExpiry = 0;
@@ -157,7 +163,7 @@ export class EntraAuth {
             throw new Error("Token refresh failed. Please sign in again via Settings → OnyxAz.");
         }
 
-        const data = (await resp.json()) as TokenResponse;
+        const data = resp.json as TokenResponse;
         await this.storeToken(data);
         return data.access_token;
     }

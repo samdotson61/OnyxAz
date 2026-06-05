@@ -19,7 +19,7 @@ export class AdoApiManager extends AdoManager {
     async listProjects(): Promise<string[]> {
         const org = this.plugin.settings.organizationUrl.replace(/\/$/, "");
         const resp = await this.apiFetch(`${org}/_apis/projects?api-version=${ADO_API_VERSION}`);
-        const data = await resp.json();
+        const data = resp.json;
         return (data.value ?? []).map((p: { name: string }) => p.name);
     }
 
@@ -28,7 +28,7 @@ export class AdoApiManager extends AdoManager {
         const resp = await this.apiFetch(
             `${org}/${encodeURIComponent(project)}/_apis/git/repositories?api-version=${ADO_API_VERSION}`
         );
-        const data = await resp.json();
+        const data = resp.json;
         return (data.value ?? []).map((r: { name: string }) => r.name);
     }
 
@@ -36,7 +36,7 @@ export class AdoApiManager extends AdoManager {
         const resp = await this.apiFetch(
             `${this.baseUrl}/refs?filter=heads/&api-version=${ADO_API_VERSION}`
         );
-        const data = await resp.json();
+        const data = resp.json;
         return (data.value ?? []).map((r: { name: string }) => r.name.replace("refs/heads/", ""));
     }
 
@@ -58,7 +58,7 @@ export class AdoApiManager extends AdoManager {
             `&api-version=${ADO_API_VERSION}`;
         try {
             const resp = await this.apiFetch(url);
-            const data = await resp.json();
+            const data = resp.json;
             if (!data.value?.length) return EMPTY_REPO_SHA;
             return data.value[0].commitId as string;
         } catch {
@@ -76,7 +76,7 @@ export class AdoApiManager extends AdoManager {
             `&api-version=${ADO_API_VERSION}`;
         try {
             const resp = await this.apiFetch(url);
-            const data = await resp.json();
+            const data = resp.json;
             return ((data.value ?? []) as AdoFile[]).filter((f) => !f.isFolder);
         } catch {
             return [];
@@ -95,7 +95,7 @@ export class AdoApiManager extends AdoManager {
         const resp = await this.apiFetch(url, {
             headers: { Accept: "application/octet-stream" },
         });
-        return resp.arrayBuffer();
+        return resp.arrayBuffer;
     }
 
     // ── State persistence ────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ export class AdoApiManager extends AdoManager {
             `&searchCriteria.$top=${count}` +
             `&api-version=${ADO_API_VERSION}`;
         const resp = await this.apiFetch(url);
-        const data = await resp.json();
+        const data = resp.json;
         return (data.value ?? []).map((c: {
             commitId: string;
             comment: string;
