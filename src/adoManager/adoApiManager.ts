@@ -1,4 +1,4 @@
-import { normalizePath, TFile } from "obsidian";
+import { normalizePath, Notice, TFile } from "obsidian";
 import { AdoManager } from "./adoManager";
 import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, IGNORE_FILE_PATH, STATE_FILE_PATH } from "../constants";
 import type { AdoFile, FileStatus, LogEntry, SyncState, SyncStatus } from "../types";
@@ -12,31 +12,30 @@ export class AdoApiManager extends AdoManager {
     // ── Connection ──────────────────────────────────────────────────────────
 
     async testConnection(): Promise<void> {
-        const s = this.plugin.settings;
-        const org = s.organizationUrl.replace(/\/$/, "");
-        const url = `${org}/_apis/projects?api-version=${ADO_API_VERSION}`;
-        await this.apiFetch(url);
+        const org = this.plugin.settings.organizationUrl.replace(/\/$/, "");
+        await this.apiFetch(`${org}/_apis/projects?api-version=${ADO_API_VERSION}`);
     }
 
     async listProjects(): Promise<string[]> {
         const org = this.plugin.settings.organizationUrl.replace(/\/$/, "");
-        const url = `${org}/_apis/projects?api-version=${ADO_API_VERSION}`;
-        const resp = await this.apiFetch(url);
+        const resp = await this.apiFetch(`${org}/_apis/projects?api-version=${ADO_API_VERSION}`);
         const data = await resp.json();
         return (data.value ?? []).map((p: { name: string }) => p.name);
     }
 
     async listRepositories(project: string): Promise<string[]> {
         const org = this.plugin.settings.organizationUrl.replace(/\/$/, "");
-        const url = `${org}/${encodeURIComponent(project)}/_apis/git/repositories?api-version=${ADO_API_VERSION}`;
-        const resp = await this.apiFetch(url);
+        const resp = await this.apiFetch(
+            `${org}/${encodeURIComponent(project)}/_apis/git/repositories?api-version=${ADO_API_VERSION}`
+        );
         const data = await resp.json();
         return (data.value ?? []).map((r: { name: string }) => r.name);
     }
 
     async listBranches(): Promise<string[]> {
-        const url = `${this.baseUrl}/refs?filter=heads/&api-version=${ADO_API_VERSION}`;
-        const resp = await this.apiFetch(url);
+        const resp = await this.apiFetch(
+            `${this.baseUrl}/refs?filter=heads/&api-version=${ADO_API_VERSION}`
+        );
         const data = await resp.json();
         return (data.value ?? []).map((r: { name: string }) => r.name.replace("refs/heads/", ""));
     }
@@ -105,7 +104,7 @@ export class AdoApiManager extends AdoManager {
         if (this.cachedState) return this.cachedState;
         try {
             const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(STATE_FILE_PATH));
-            if (!file || !(file instanceof TFile)) return null;
+            if (!(file instanceof TFile)) return null;
             const content = await this.plugin.app.vault.read(file);
             this.cachedState = JSON.parse(content) as SyncState;
             return this.cachedState;
@@ -132,17 +131,8 @@ export class AdoApiManager extends AdoManager {
 
     // ── Ignore logic ─────────────────────────────────────────────────────────
 
-    private getIgnorePatterns(): string[] {
-        const patterns = [...DEFAULT_IGNORED];
-        const ignoreFile = this.plugin.app.vault.getAbstractFileByPath(normalizePath(IGNORE_FILE_PATH));
-        if (ignoreFile instanceof TFile) {
-            // Synchronous read isn't available; patterns loaded on next cycle
-        }
-        return patterns;
-    }
-
     private shouldIgnore(path: string): boolean {
-        return this.getIgnorePatterns().some((p) => {
+        return DEFAULT_IGNORED.some((p) => {
             if (p.endsWith("/")) return path.startsWith(p) || path === p.slice(0, -1);
             return path === p || path.startsWith(p + "/");
         });
@@ -263,6 +253,7 @@ export class AdoApiManager extends AdoManager {
         ]);
 
         const remotePathSet = new Set(remoteTree.map((f) => f.path.replace(/^\//, "")));
+        const maxBytes = this.plugin.settings.maxAttachmentSizeMB * 1024 * 1024;
         const changes: object[] = [];
 
         for (const fileStatus of status.changed) {
@@ -278,13 +269,22 @@ export class AdoApiManager extends AdoManager {
             if (!(file instanceof TFile)) continue;
 
             const buffer = await this.plugin.app.vault.readBinary(file);
-            const base64 = arrayBufferToBase64(buffer);
-            const changeType = remotePathSet.has(fileStatus.path) ? "edit" : "add";
+
+            if (buffer.byteLength > maxBytes) {
+                new Notice(
+                    `OnyxAz: Skipping ${file.name} — ${(buffer.byteLength / 1048576).toFixed(1)} MB exceeds the ${this.plugin.settings.maxAttachmentSizeMB} MB limit.`,
+                    6000
+                );
+                continue;
+            }
 
             changes.push({
-                changeType,
+                changeType: remotePathSet.has(fileStatus.path) ? "edit" : "add",
                 item: { path: `/${fileStatus.path}` },
-                newContent: { content: base64, contentType: "base64Encoded" },
+                newContent: {
+                    content: arrayBufferToBase64(buffer),
+                    contentType: "base64Encoded",
+                },
             });
         }
 
@@ -292,29 +292,25 @@ export class AdoApiManager extends AdoManager {
 
         const payload = {
             refUpdates: [
-                {
-                    name: `refs/heads/${this.plugin.settings.branch}`,
-                    oldObjectId: latestCommitId,
-                },
+                { name: `refs/heads/${this.plugin.settings.branch}`, oldObjectId: latestCommitId },
             ],
-            commits: [
-                {
-                    comment: message,
-                    changes,
-                },
-            ],
+            commits: [{ comment: message, changes }],
         };
 
-        const url = `${this.baseUrl}/pushes?api-version=${ADO_API_VERSION}`;
-        await this.apiFetch(url, { method: "POST", body: JSON.stringify(payload) });
+        await this.apiFetch(`${this.baseUrl}/pushes?api-version=${ADO_API_VERSION}`, {
+            method: "POST",
+            body: JSON.stringify(payload),
+        });
 
-        const newCommitId = await this.getLatestCommitId();
-        const newRemoteTree = await this.getRemoteFileTree();
+        // Refresh state after push
+        const [newCommitId, newRemoteTree] = await Promise.all([
+            this.getLatestCommitId(),
+            this.getRemoteFileTree(),
+        ]);
         const remoteObjectIds: Record<string, string> = {};
         for (const f of newRemoteTree) {
             remoteObjectIds[f.path.replace(/^\//, "")] = f.objectId;
         }
-
         await this.saveSyncState({
             lastSyncedCommitId: newCommitId,
             lastSyncTime: Date.now(),

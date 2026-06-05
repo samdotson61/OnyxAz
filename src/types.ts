@@ -1,19 +1,33 @@
+export type AuthMethod = "pat" | "entra";
+
 export interface OnyxAzSettings {
+    // Connection
     organizationUrl: string;
-    pat: string;
     project: string;
     repository: string;
     branch: string;
+    // Auth
+    authMethod: AuthMethod;
+    pat: string;
+    entraClientId: string;
+    entraTenantId: string;
+    entraAccessToken: string;
+    entraRefreshToken: string;
+    entraTokenExpiry: number;
+    // Automation
     autoSyncInterval: number;
     autoPullInterval: number;
     autoSyncOnSave: boolean;
     autoSyncOnSaveDebounceMs: number;
+    // Commit
     commitMessage: string;
     commitDateFormat: string;
+    // Misc
     pullOnStartup: boolean;
     showStatusBar: boolean;
     showChangedFilesCount: boolean;
     notifyOnSuccess: boolean;
+    maxAttachmentSizeMB: number;
 }
 
 export interface FileStatus {

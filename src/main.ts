@@ -1,10 +1,11 @@
-import { moment, Notice, Plugin, addIcon } from "obsidian";
+import { Notice, Plugin, addIcon } from "obsidian";
 import { DEFAULT_SETTINGS } from "./constants";
 import type { OnyxAzSettings, SyncStatus } from "./types";
 import { CurrentAdoAction } from "./types";
 import { AdoApiManager } from "./adoManager/adoApiManager";
 import type { AdoManager } from "./adoManager/adoManager";
 import { AutomaticsManager } from "./automaticsManager";
+import { EntraAuth } from "./auth/entraAuth";
 import { PromiseQueue } from "./promiseQueue";
 import { StatusBar } from "./statusBar";
 import { OnyxAzSettingsTab } from "./setting/settings";
@@ -19,12 +20,11 @@ export default class OnyxAz extends Plugin {
     settings!: OnyxAzSettings;
     adoManager!: AdoManager;
     automaticsManager!: AutomaticsManager;
+    entraAuth!: EntraAuth;
     promiseQueue!: PromiseQueue;
     cachedStatus: SyncStatus | null = null;
 
-    state = {
-        adoAction: CurrentAdoAction.idle,
-    };
+    state = { adoAction: CurrentAdoAction.idle };
 
     private statusBarItem: StatusBar | null = null;
     private statusBarEl: HTMLElement | null = null;
@@ -34,6 +34,7 @@ export default class OnyxAz extends Plugin {
         await this.loadSettings();
         addIcon("onyxaz", ONYXAZ_ICON);
 
+        this.entraAuth = new EntraAuth(this);
         this.adoManager = new AdoApiManager(this);
         this.promiseQueue = new PromiseQueue(this);
         this.automaticsManager = new AutomaticsManager(this);
@@ -59,9 +60,7 @@ export default class OnyxAz extends Plugin {
     onunload(): void {
         this.automaticsManager.unload();
         this.statusBarItem?.remove();
-        if (this.statusBarInterval !== null) {
-            clearInterval(this.statusBarInterval);
-        }
+        if (this.statusBarInterval !== null) clearInterval(this.statusBarInterval);
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
@@ -118,7 +117,7 @@ export default class OnyxAz extends Plugin {
         });
 
         this.addCommand({
-            id: "pause-automatics",
+            id: "toggle-automatics",
             name: "Toggle automatic sync",
             callback: () => {
                 if (this.automaticsManager.isPaused) {
@@ -156,12 +155,10 @@ export default class OnyxAz extends Plugin {
         this.setState(CurrentAdoAction.sync);
         try {
             const status = await this.adoManager.getStatus();
-            const message = this.adoManager["buildCommitMessage"](status.changed.length);
+            const message = this.adoManager.buildCommitMessage(status.changed.length);
             await this.adoManager.commitAndSync(message);
             this.cachedStatus = null;
-            if (this.settings.notifyOnSuccess) {
-                new Notice("OnyxAz: Sync complete.");
-            }
+            if (this.settings.notifyOnSuccess) new Notice("OnyxAz: Sync complete.");
             this.app.workspace.trigger("onyxaz:refresh");
         } catch (e) {
             this.displayError(e);
@@ -202,7 +199,7 @@ export default class OnyxAz extends Plugin {
                 new Notice("OnyxAz: Nothing to push.");
                 return;
             }
-            const message = this.adoManager["buildCommitMessage"](status.changed.length);
+            const message = this.adoManager.buildCommitMessage(status.changed.length);
             await this.adoManager.push(message);
             this.cachedStatus = null;
             if (this.settings.notifyOnSuccess) {
@@ -219,24 +216,17 @@ export default class OnyxAz extends Plugin {
     // ── Status bar ────────────────────────────────────────────────────────────
 
     refreshStatusBar(): void {
-        if (this.statusBarEl) {
-            this.statusBarItem?.remove();
-            this.statusBarEl = null;
-            this.statusBarItem = null;
-        }
+        this.statusBarItem?.remove();
+        this.statusBarEl = null;
+        this.statusBarItem = null;
         if (this.statusBarInterval !== null) {
             clearInterval(this.statusBarInterval);
             this.statusBarInterval = null;
         }
-
         if (!this.settings.showStatusBar) return;
-
         this.statusBarEl = this.addStatusBarItem();
         this.statusBarItem = new StatusBar(this.statusBarEl, this);
-
-        this.statusBarInterval = setInterval(() => {
-            this.statusBarItem?.display();
-        }, 1000);
+        this.statusBarInterval = setInterval(() => this.statusBarItem?.display(), 1000);
     }
 
     private async updateCachedStatus(): Promise<void> {
@@ -253,7 +243,9 @@ export default class OnyxAz extends Plugin {
 
     isConfigured(): boolean {
         const s = this.settings;
-        return !!(s.organizationUrl && s.pat && s.project && s.repository && s.branch);
+        const hasCredentials =
+            s.authMethod === "pat" ? !!s.pat : this.entraAuth.isSignedIn;
+        return !!(s.organizationUrl && s.project && s.repository && s.branch && hasCredentials);
     }
 
     private setState(action: CurrentAdoAction): void {

@@ -1,5 +1,5 @@
 import type OnyxAz from "../main";
-import type { FileStatus, LogEntry, SyncState, SyncStatus } from "../types";
+import type { LogEntry, SyncState, SyncStatus } from "../types";
 import { ADO_API_VERSION } from "../constants";
 
 export abstract class AdoManager {
@@ -30,13 +30,19 @@ export abstract class AdoManager {
         return `${org}/${encodeURIComponent(s.project)}/_apis/git/repositories/${encodeURIComponent(s.repository)}`;
     }
 
-    protected get authHeader(): string {
+    // Resolves the correct Authorization header for PAT or Entra auth
+    private async resolveAuthHeader(): Promise<string> {
+        if (this.plugin.settings.authMethod === "entra") {
+            const token = await this.plugin.entraAuth.getValidAccessToken();
+            return `Bearer ${token}`;
+        }
         return `Basic ${btoa(`:${this.plugin.settings.pat}`)}`;
     }
 
     protected async apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+        const authHeader = await this.resolveAuthHeader();
         const headers: Record<string, string> = {
-            Authorization: this.authHeader,
+            Authorization: authHeader,
             "Content-Type": "application/json",
             ...(options.headers as Record<string, string> ?? {}),
         };
@@ -48,7 +54,7 @@ export abstract class AdoManager {
         return response;
     }
 
-    protected buildCommitMessage(numFiles: number): string {
+    buildCommitMessage(numFiles: number): string {
         const s = this.plugin.settings;
         const now = new Date();
         const pad = (n: number) => String(n).padStart(2, "0");
