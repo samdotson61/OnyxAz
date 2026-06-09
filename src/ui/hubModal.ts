@@ -68,9 +68,14 @@ export class HubModal extends Modal {
         const actions = contentEl.createDiv({ cls: "onyxaz-hub-actions" });
 
         if (configured) {
-            this.btn(actions, "Sync now", "mod-cta", () => {
+            this.btn(actions, "Pull & sync", "mod-cta", () => {
                 this.close();
                 this.plugin.promiseQueue.addTask(() => this.plugin.commitAndSync());
+            });
+
+            this.btn(actions, "Push changes…", "", () => {
+                this.close();
+                this.plugin.promiseQueue.addTask(() => this.plugin.push());
             });
         }
 
