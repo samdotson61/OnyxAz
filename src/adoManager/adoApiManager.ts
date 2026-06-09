@@ -165,8 +165,12 @@ export class AdoApiManager extends AdoManager {
     // prepends this; state keys stay remote-relative so the format is unchanged.
 
     private get syncRoot(): string {
-        const p = (this.plugin.settings.localSyncPath ?? "").trim().replace(/^\/+|\/+$/g, "");
-        return p ? p + "/" : "";
+        // Explicit override wins; otherwise default to ADO/<project>/ so files
+        // never land at the vault root without any configuration.
+        const explicit = (this.plugin.settings.localSyncPath ?? "").trim().replace(/^\/+|\/+$/g, "");
+        if (explicit) return explicit + "/";
+        const project = (this.plugin.settings.project ?? "").trim();
+        return project ? `ADO/${project}/` : "";
     }
 
     // ── Adapter helpers ───────────────────────────────────────────────────────

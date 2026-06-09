@@ -202,24 +202,6 @@ export class OnboardingModal extends Modal {
             });
         }
 
-        // Local sync folder — shown after a repo is selected
-        if (s.project && s.repository) {
-            new Setting(contentEl)
-                .setName("Local sync folder")
-                .setDesc(
-                    "Where in this vault files from this repo will be placed. " +
-                    "Leave blank for vault root, or use a path like ADO/ProjectName to keep repos separated."
-                )
-                .addText((t) =>
-                    t
-                        .setPlaceholder("ADO/" + s.project)
-                        .setValue(s.localSyncPath)
-                        .onChange((v) => {
-                            s.localSyncPath = v.trim().replace(/^\/+|\/+$/g, "");
-                        })
-                );
-        }
-
         this.navButtons(contentEl, {
             back: { label: "← Back", onClick: () => { this.step = "signin"; this.render(); } },
             next: {
@@ -231,10 +213,6 @@ export class OnboardingModal extends Modal {
                         this.plugin.settings.project = project;
                         this.plugin.settings.repository = repo;
                         this.plugin.settings.branch = branch;
-                        // Auto-suggest a sync path if the user hasn't set one yet
-                        if (!this.plugin.settings.localSyncPath) {
-                            this.plugin.settings.localSyncPath = `ADO/${project}`;
-                        }
                         await this.plugin.saveSettings();
                         await this.finishOnboarding();
                     }).open();
@@ -248,9 +226,14 @@ export class OnboardingModal extends Modal {
     private renderDone(): void {
         const { contentEl } = this;
         const s = this.plugin.settings;
+        const syncFolder = s.localSyncPath || `ADO/${s.project}`;
 
         contentEl.createEl("p", {
             text: `Your vault is connected to ${s.project} / ${s.repository} on branch ${s.branch}.`,
+        });
+        contentEl.createEl("p", {
+            text: `Files will sync into the "${syncFolder}" folder inside this vault.`,
+            cls: "onyxaz-hint",
         });
         contentEl.createEl("p", {
             text: "Pull from the ribbon icon (or Settings → OnyxAz → Pull on startup). Push requires confirmation — nothing is sent automatically.",

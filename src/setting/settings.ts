@@ -165,13 +165,12 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
         new Setting(containerEl)
             .setName("Local sync folder")
             .setDesc(
-                "Subfolder inside this vault where synced files are placed. " +
-                "Leave blank to sync at the vault root. " +
-                "Example: ADO/ProjectName — lets multiple repos share one vault without mixing files."
+                "By default, files go into ADO/<ProjectName>/ so repos never mix at the vault root. " +
+                "Override here only if you need a different location. Leave blank to use the default."
             )
             .addText((t) =>
                 t
-                    .setPlaceholder("ADO/ProjectName")
+                    .setPlaceholder(`ADO/${this.plugin.settings.project || "ProjectName"} (default)`)
                     .setValue(this.plugin.settings.localSyncPath)
                     .onChange(async (v) => {
                         this.plugin.settings.localSyncPath = v.trim().replace(/^\/+|\/+$/g, "");
