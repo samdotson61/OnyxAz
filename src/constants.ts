@@ -4,8 +4,9 @@ import type { OnyxAzSettings } from "./types";
 // Register an Azure app (multi-tenant, public client, device code flow enabled,
 // Azure DevOps → user_impersonation delegated permission) and paste the IDs here.
 // When set, end-users never see a Client ID field — they just click "Sign in".
-export const ONYX_AZ_DEFAULT_CLIENT_ID = "11111111-1111-1111-1111-111111111111";
-export const ONYX_AZ_DEFAULT_TENANT_ID = "22222222-2222-2222-2222-222222222222";
+// Leave blank to require users to enter their own Client ID during setup.
+export const ONYX_AZ_DEFAULT_CLIENT_ID = "";
+export const ONYX_AZ_DEFAULT_TENANT_ID = "organizations"; // works for any work/school account
 
 export const DEFAULT_SETTINGS: OnyxAzSettings = {
     hasCompletedOnboarding: false,

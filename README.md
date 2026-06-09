@@ -27,15 +27,30 @@ OnyxAz is not yet listed in the Obsidian Community Plugins directory. Install ma
 4. Open Obsidian → **Settings → Community plugins**
 5. Toggle **OnyxAz** on
 
-> **myorg users:** The plugin is pre-configured with the company Azure app — just sign in with your `@myorg.com` account.
-
 ---
 
 ## Setup
 
 OnyxAz guides you through a setup wizard on first install.
 
-### Step 1 — Organization URL
+### Step 1 — Register an Azure app (one-time, per organization)
+
+Microsoft Entra sign-in requires an Azure app registration. An Azure AD admin at your organization does this once; everyone else just signs in.
+
+1. In the [Azure portal](https://portal.azure.com), go to **Azure Active Directory → App registrations → New registration**
+2. Name it anything (e.g. `OnyxAz`)
+3. Supported account types: **Accounts in this organizational directory only** (or Multitenant if needed)
+4. No redirect URI needed — click **Register**
+5. On the app overview page, copy the **Application (client) ID** and **Directory (tenant) ID**
+6. Go to **Authentication → Add a platform → Mobile and desktop** and add `https://login.microsoftonline.com/common/oauth2/nativeclient` as a redirect URI. Enable **Allow public client flows**.
+7. Go to **API permissions → Add a permission → APIs my organization uses** → search for **Azure DevOps** → select **user_impersonation** → Add
+
+Paste the Client ID into **Settings → OnyxAz → Advanced → Azure App Client ID**.  
+The Tenant ID can be left as `organizations` for most setups, or set to your specific directory ID.
+
+> **Distributing internally?** Hard-code the Client ID into the plugin before distributing by setting `ONYX_AZ_DEFAULT_CLIENT_ID` in `src/constants.ts`. End-users then see a one-click sign-in with no app configuration required.
+
+### Step 2 — Organization URL
 
 Enter your ADO organization URL, e.g.:
 
@@ -43,19 +58,19 @@ Enter your ADO organization URL, e.g.:
 https://dev.azure.com/myorg
 ```
 
-### Step 2 — Sign in with Microsoft (recommended)
+### Step 3 — Sign in with Microsoft
 
 Click **Sign in with Microsoft**. A device code will appear — open the link in your browser, enter the code, and sign in with your work account. The plugin handles token refresh automatically.
 
-### Step 3 — Pick a repository
+### Step 4 — Pick a repository
 
 A tree picker shows all projects and repositories you have access to. Expand a project, expand a repo, and click a branch to select it. Click **Connect**.
 
-That's it. Files will sync into `ADO/<ProjectName>/` inside your vault automatically.
+Files will sync into `ADO/<ProjectName>/` inside your vault automatically.
 
 ### Alternative: Personal Access Token
 
-If device code sign-in is blocked by your network, go to **Settings → OnyxAz → Advanced** and switch to **Personal Access Token**. Create a PAT in Azure DevOps with **Code (Read & Write)** scope and paste it there.
+If device code sign-in is blocked by your network, go to **Settings → OnyxAz → Advanced** and switch to **Personal Access Token**. Create a PAT in Azure DevOps with **Code (Read & Write)** scope and paste it there. No Azure app registration needed for PAT auth.
 
 ---
 
@@ -66,7 +81,7 @@ By default, OnyxAz places synced files in a subfolder named after your project:
 ```
 My Vault/
 ├── ADO/
-│   └── myorg IT/          ← files from the connected repo live here
+│   └── My Project/         ← files from the connected repo live here
 │       ├── README.md
 │       └── notes/
 │           └── my-note.md
