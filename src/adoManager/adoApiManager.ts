@@ -112,7 +112,20 @@ export class AdoApiManager extends AdoManager {
             const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(STATE_FILE_PATH));
             if (!(file instanceof TFile)) return null;
             const content = await this.plugin.app.vault.read(file);
-            this.cachedState = JSON.parse(content) as SyncState;
+            const state = JSON.parse(content) as SyncState;
+            // If the user changed localSyncPath since the last run, the stored
+            // file paths are no longer valid for the new location — clear state
+            // so a full re-sync downloads everything to the correct folder.
+            if (state.syncRoot !== undefined && state.syncRoot !== this.syncRoot) {
+                new Notice(
+                    `OnyxAz: Sync folder changed to "${this.syncRoot || "(vault root)"}". ` +
+                    `Old state cleared — use Force re-pull to download files to the new location.`,
+                    8000
+                );
+                await this.plugin.app.vault.delete(file);
+                return null;
+            }
+            this.cachedState = state;
             return this.cachedState;
         } catch {
             return null;
@@ -120,13 +133,15 @@ export class AdoApiManager extends AdoManager {
     }
 
     async saveSyncState(state: SyncState): Promise<void> {
-        this.cachedState = state;
+        // Always record the current syncRoot so we can detect path changes later
+        const stateWithRoot: SyncState = { ...state, syncRoot: this.syncRoot };
+        this.cachedState = stateWithRoot;
         const path = normalizePath(STATE_FILE_PATH);
         const dir = path.split("/").slice(0, -1).join("/");
         if (dir && !this.plugin.app.vault.getAbstractFileByPath(dir)) {
             await this.plugin.app.vault.createFolder(dir).catch(() => {});
         }
-        const content = JSON.stringify(state, null, 2);
+        const content = JSON.stringify(stateWithRoot, null, 2);
         const existing = this.plugin.app.vault.getAbstractFileByPath(path);
         if (existing instanceof TFile) {
             await this.plugin.app.vault.modify(existing, content);
@@ -144,38 +159,60 @@ export class AdoApiManager extends AdoManager {
         });
     }
 
+    // ── Sync root ─────────────────────────────────────────────────────────────
+    // Returns the vault-relative folder prefix for this repo (always ends with
+    // "/" when non-empty, or "" for vault-root mode). All local file I/O
+    // prepends this; state keys stay remote-relative so the format is unchanged.
+
+    private get syncRoot(): string {
+        const p = (this.plugin.settings.localSyncPath ?? "").trim().replace(/^\/+|\/+$/g, "");
+        return p ? p + "/" : "";
+    }
+
     // ── Adapter helpers ───────────────────────────────────────────────────────
     // vault.getFiles() only returns files Obsidian has indexed (filtered by
     // extension). The adapter gives the true filesystem view, including .txt etc.
 
     private async getAllLocalPaths(): Promise<Map<string, number>> {
-        // Primary: vault-indexed files (have mtime)
+        const root = this.syncRoot; // e.g. "ADO/Notes/" or ""
         const result = new Map<string, number>();
+
+        // Primary: vault-indexed files (have mtime)
         for (const f of this.plugin.app.vault.getFiles()) {
-            if (!this.shouldIgnore(f.path)) result.set(f.path, f.stat.mtime);
+            // When syncRoot is set, only include files inside that folder;
+            // strip the prefix so keys are remote-relative (matching state keys)
+            const relativePath = root
+                ? (f.path.startsWith(root) ? f.path.slice(root.length) : null)
+                : f.path;
+            if (relativePath !== null && !this.shouldIgnore(relativePath)) {
+                result.set(relativePath, f.stat.mtime);
+            }
         }
-        // Supplement: adapter scan for any non-indexed files
+
+        // Supplement: adapter scan for non-indexed files (e.g. .txt)
+        // Starts from syncRoot so .obsidian/ and .onyxaz/ are naturally excluded
         const visit = async (dir: string) => {
             try {
                 const { files, folders } = await this.plugin.app.vault.adapter.list(dir);
                 for (const p of files) {
-                    if (!this.shouldIgnore(p) && !result.has(p)) {
-                        // No mtime available without an extra stat call; use 0
-                        // so it's treated as "possibly modified" in status logic
-                        result.set(p, 0);
+                    const relativePath = root ? p.slice(root.length) : p;
+                    if (!this.shouldIgnore(relativePath) && !result.has(relativePath)) {
+                        result.set(relativePath, 0);
                     }
                 }
                 for (const folder of folders) {
-                    if (!this.shouldIgnore(folder + "/")) await visit(folder);
+                    const relativeFolder = root ? folder.slice(root.length) : folder;
+                    if (!this.shouldIgnore(relativeFolder + "/")) await visit(folder);
                 }
             } catch { /* skip inaccessible dirs */ }
         };
-        await visit("");
+        await visit(root ? root.replace(/\/$/, "") : "");
         return result;
     }
 
     private async readLocalFile(filePath: string): Promise<ArrayBuffer | null> {
-        const p = normalizePath(filePath);
+        // filePath is remote-relative; prepend syncRoot to get the vault-local path
+        const p = normalizePath(this.syncRoot + filePath);
         const vaultFile = this.plugin.app.vault.getAbstractFileByPath(p);
         if (vaultFile instanceof TFile) return this.plugin.app.vault.readBinary(vaultFile);
         try { return await this.plugin.app.vault.adapter.readBinary(p); } catch { return null; }
@@ -237,7 +274,7 @@ export class AdoApiManager extends AdoManager {
             const storedObjectId = state?.remoteObjectIds[filePath];
             const remoteChanged = !state || storedObjectId !== remoteFile.objectId;
             if (remoteChanged && state) {
-                const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(filePath));
+                const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(this.syncRoot + filePath));
                 if (localExists) conflicts.push(filePath);
             }
         }
@@ -255,7 +292,7 @@ export class AdoApiManager extends AdoManager {
 
             newRemoteObjectIds[filePath] = remoteFile.objectId;
             const storedObjectId = state?.remoteObjectIds[filePath];
-            const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(filePath));
+            const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(this.syncRoot + filePath));
 
             if (!state || storedObjectId !== remoteFile.objectId || !localExists) {
                 if (skipPaths.has(filePath)) continue;
@@ -269,7 +306,7 @@ export class AdoApiManager extends AdoManager {
             for (const path of Object.keys(state.remoteObjectIds)) {
                 const stillExists = remoteTree.some((f) => f.path.replace(/^\//, "") === path);
                 if (!stillExists) {
-                    const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(path));
+                    const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(this.syncRoot + path));
                     if (file) {
                         await this.plugin.app.vault.delete(file);
                         filesChanged++;
@@ -288,7 +325,8 @@ export class AdoApiManager extends AdoManager {
     }
 
     private async writeLocalFile(filePath: string, buffer: ArrayBuffer): Promise<void> {
-        const normalPath = normalizePath(filePath);
+        // filePath is remote-relative; prepend syncRoot to get the vault-local path
+        const normalPath = normalizePath(this.syncRoot + filePath);
         // Ensure parent directories exist
         const parts = normalPath.split("/");
         for (let i = 1; i < parts.length; i++) {

@@ -8,6 +8,7 @@ export interface OnyxAzSettings {
     project: string;
     repository: string;
     branch: string;
+    localSyncPath: string;  // subfolder in vault where this repo's files live (blank = vault root)
     // Auth
     authMethod: AuthMethod;
     pat: string;
@@ -55,6 +56,7 @@ export interface SyncState {
     lastSyncedCommitId: string;
     lastSyncTime: number;
     remoteObjectIds: Record<string, string>;
+    syncRoot?: string;  // recorded so a path change triggers automatic state invalidation
 }
 
 export interface LogEntry {

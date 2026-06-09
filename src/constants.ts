@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: OnyxAzSettings = {
     project: "",
     repository: "",
     branch: "main",
+    localSyncPath: "",
     authMethod: "entra",           // Microsoft SSO is the default
     pat: "",
     entraClientId: "",

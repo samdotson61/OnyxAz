@@ -163,6 +163,28 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
+            .setName("Local sync folder")
+            .setDesc(
+                "Subfolder inside this vault where synced files are placed. " +
+                "Leave blank to sync at the vault root. " +
+                "Example: ADO/ProjectName — lets multiple repos share one vault without mixing files."
+            )
+            .addText((t) =>
+                t
+                    .setPlaceholder("ADO/ProjectName")
+                    .setValue(this.plugin.settings.localSyncPath)
+                    .onChange(async (v) => {
+                        this.plugin.settings.localSyncPath = v.trim().replace(/^\/+|\/+$/g, "");
+                        await this.plugin.saveSettings();
+                        new Notice(
+                            "OnyxAz: Sync folder updated. " +
+                            "Use Force re-pull to download files to the new location.",
+                            6000
+                        );
+                    })
+            );
+
+        new Setting(containerEl)
             .setName("Test connection")
             .addButton((btn) =>
                 btn
