@@ -108,10 +108,14 @@ export class AdoApiManager extends AdoManager {
 
     async getSyncState(): Promise<SyncState | null> {
         if (this.cachedState) return this.cachedState;
+        const adapter = this.plugin.app.vault.adapter;
+        const path = normalizePath(STATE_FILE_PATH);
         try {
-            const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(STATE_FILE_PATH));
-            if (!(file instanceof TFile)) return null;
-            const content = await this.plugin.app.vault.read(file);
+            // Use adapter directly — vault.getAbstractFileByPath() can return null
+            // when the index is stale (file on disk but not yet indexed), so we
+            // skip the index entirely for reliable state file access.
+            if (!(await adapter.exists(path))) return null;
+            const content = await adapter.read(path);
             const state = JSON.parse(content) as SyncState;
             // If the user changed localSyncPath since the last run, the stored
             // file paths are no longer valid for the new location — clear state
@@ -122,7 +126,7 @@ export class AdoApiManager extends AdoManager {
                     `Old state cleared — use Force re-pull to download files to the new location.`,
                     8000
                 );
-                await this.plugin.app.vault.delete(file);
+                await adapter.remove(path).catch(() => {});
                 return null;
             }
             this.cachedState = state;
@@ -136,18 +140,17 @@ export class AdoApiManager extends AdoManager {
         // Always record the current syncRoot so we can detect path changes later
         const stateWithRoot: SyncState = { ...state, syncRoot: this.syncRoot };
         this.cachedState = stateWithRoot;
+        const adapter = this.plugin.app.vault.adapter;
         const path = normalizePath(STATE_FILE_PATH);
         const dir = path.split("/").slice(0, -1).join("/");
-        if (dir && !this.plugin.app.vault.getAbstractFileByPath(dir)) {
-            await this.plugin.app.vault.createFolder(dir).catch(() => {});
+        // Ensure directory exists via adapter — avoids vault.createFolder() throwing
+        // "Folder already exists" when the index hasn't caught up with the filesystem.
+        if (dir && !(await adapter.exists(dir))) {
+            await adapter.mkdir(dir).catch(() => {});
         }
-        const content = JSON.stringify(stateWithRoot, null, 2);
-        const existing = this.plugin.app.vault.getAbstractFileByPath(path);
-        if (existing instanceof TFile) {
-            await this.plugin.app.vault.modify(existing, content);
-        } else {
-            await this.plugin.app.vault.create(path, content);
-        }
+        // Write via adapter — avoids vault.create() throwing "File already exists"
+        // when the vault index is stale (file is on disk but not yet indexed).
+        await adapter.write(path, JSON.stringify(stateWithRoot, null, 2));
     }
 
     // ── Ignore logic ─────────────────────────────────────────────────────────
@@ -445,9 +448,11 @@ export class AdoApiManager extends AdoManager {
     // Force-pull: wipes local state so every remote file is re-downloaded
     async forcePull(): Promise<number> {
         this.cachedState = null;
-        const path = normalizePath(".onyxaz/state.json");
-        const existing = this.plugin.app.vault.getAbstractFileByPath(path);
-        if (existing) await this.plugin.app.vault.delete(existing);
+        const adapter = this.plugin.app.vault.adapter;
+        const path = normalizePath(STATE_FILE_PATH);
+        if (await adapter.exists(path)) {
+            await adapter.remove(path).catch(() => {});
+        }
         return this.pull();
     }
 
