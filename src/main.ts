@@ -223,11 +223,8 @@ export default class OnyxAz extends Plugin {
         }
         this.setState(CurrentAdoAction.idle);
 
-        // 3. If nothing was locally changed, we're done
-        if (prePullChanges.length === 0) {
-            if (this.settings.notifyOnSuccess) new Notice("OnyxAz: Already up to date.");
-            return;
-        }
+        // 3. If nothing was locally changed, we're done (pull notice above already reported status)
+        if (prePullChanges.length === 0) return;
 
         // 4. Ask user to confirm before pushing
         const message = this.adoManager.buildCommitMessage(prePullChanges.length);
@@ -291,28 +288,32 @@ export default class OnyxAz extends Plugin {
             return;
         }
         this.setState(CurrentAdoAction.status);
-        let changes: FileStatus[];
+        let status: SyncStatus;
         try {
-            changes = (await this.adoManager.getStatus()).changed;
+            status = await this.adoManager.getStatus();
         } catch (e) {
             this.displayError(e);
             this.setState(CurrentAdoAction.idle);
             return;
         }
+        // Always update the cache with the freshly computed status so the hub
+        // reflects reality even when we bail out early below.
+        this.cachedStatus = status;
+        this.app.workspace.trigger("onyxaz:status-changed");
         this.setState(CurrentAdoAction.idle);
 
-        if (changes.length === 0) {
-            new Notice("OnyxAz: Nothing to push.");
+        if (status.changed.length === 0) {
+            new Notice("OnyxAz: Already up to date — no local changes to push.");
             return;
         }
 
-        const message = this.adoManager.buildCommitMessage(changes.length);
-        new ConfirmPushModal(this.app, this, changes, message, async (msg) => {
+        const message = this.adoManager.buildCommitMessage(status.changed.length);
+        new ConfirmPushModal(this.app, this, status.changed, message, async (msg) => {
             this.setState(CurrentAdoAction.push);
             try {
-                await this.adoManager.push(msg, changes);
+                await this.adoManager.push(msg, status.changed);
                 this.cachedStatus = null;
-                if (this.settings.notifyOnSuccess) new Notice(`OnyxAz: Pushed ${changes.length} file(s).`);
+                if (this.settings.notifyOnSuccess) new Notice(`OnyxAz: Pushed ${status.changed.length} file(s).`);
                 this.app.workspace.trigger("onyxaz:refresh");
                 this.updateCachedStatus().catch(() => {});
             } catch (e) {

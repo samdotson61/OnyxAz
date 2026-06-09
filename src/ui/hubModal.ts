@@ -10,6 +10,8 @@ export class HubModal extends Modal {
 
     onOpen(): void {
         this.render();
+        // Refresh status in the background and re-render with accurate count
+        this.plugin.updateCachedStatus().then(() => this.render()).catch(() => {});
     }
 
     onClose(): void {

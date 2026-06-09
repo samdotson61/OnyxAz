@@ -10,6 +10,7 @@ export class OnboardingModal extends Modal {
     private step: Step = "welcome";
     private deviceCode: DeviceCodeResponse | null = null;
     private authFlowActive = false;
+    private signinEmail = "";
 
     constructor(app: App, private readonly plugin: OnyxAz) {
         super(app);
@@ -127,6 +128,7 @@ export class OnboardingModal extends Modal {
     private renderSignIn(): void {
         const { contentEl } = this;
 
+        // ── Device code waiting screen ────────────────────────────────────────
         if (this.authFlowActive && this.deviceCode) {
             contentEl.createEl("p", { text: "Complete sign-in in your browser:" });
 
@@ -150,9 +152,19 @@ export class OnboardingModal extends Modal {
             return;
         }
 
+        // ── Email input screen ────────────────────────────────────────────────
         contentEl.createEl("p", {
-            text: "Click below to sign in with your Microsoft work account. A browser window will open.",
+            text: "Enter your work email address. OnyxAz will automatically configure sign-in for your organization.",
         });
+
+        new Setting(contentEl)
+            .setName("Work email")
+            .addText((t) =>
+                t
+                    .setPlaceholder("you@yourcompany.com")
+                    .setValue(this.signinEmail)
+                    .onChange((v) => { this.signinEmail = v.trim(); })
+            );
 
         this.navButtons(contentEl, {
             back: { label: "← Back", onClick: () => { this.step = "welcome"; this.render(); } },
@@ -160,9 +172,20 @@ export class OnboardingModal extends Modal {
                 label: "Sign in with Microsoft",
                 cta: true,
                 onClick: async (btn) => {
-                    btn.textContent = "Starting…";
+                    if (this.signinEmail && !this.signinEmail.includes("@")) {
+                        new Notice("Please enter a valid work email address.");
+                        return;
+                    }
+                    btn.textContent = "Discovering…";
                     btn.disabled = true;
                     try {
+                        // Discover tenant from email domain (if provided)
+                        if (this.signinEmail) {
+                            const tenant = await this.plugin.entraAuth.discoverTenantFromEmail(this.signinEmail);
+                            this.plugin.settings.entraTenantId = tenant;
+                            await this.plugin.saveSettings();
+                        }
+                        btn.textContent = "Starting…";
                         const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
                         this.deviceCode = dcr;
                         this.authFlowActive = true;

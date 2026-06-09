@@ -41,6 +41,36 @@ export class EntraAuth {
         return this.plugin.settings.entraTenantId || ONYX_AZ_DEFAULT_TENANT_ID;
     }
 
+    // ── Tenant discovery ──────────────────────────────────────────────────────
+
+    // Given a work email address, discover the Azure AD tenant ID for that
+    // domain via Microsoft's OpenID Connect discovery endpoint.
+    // Falls back to "organizations" (accepts any work/school account) if the
+    // domain can't be resolved.
+    async discoverTenantFromEmail(email: string): Promise<string> {
+        const domain = email.split("@")[1]?.trim().toLowerCase();
+        if (!domain) throw new Error("Enter a valid work email address.");
+
+        try {
+            const resp = await requestUrl({
+                url: `https://login.microsoftonline.com/${domain}/v2.0/.well-known/openid-configuration`,
+                method: "GET",
+                throw: false,
+            });
+            if (resp.status === 200) {
+                // issuer format: "https://login.microsoftonline.com/{tenantId}/v2.0"
+                const issuer: string = resp.json?.issuer ?? "";
+                const match = issuer.match(/login\.microsoftonline\.com\/([^/]+)/);
+                const tenantId = match?.[1];
+                if (tenantId && tenantId !== "common" && tenantId !== "organizations") {
+                    return tenantId;
+                }
+            }
+        } catch { /* fall through */ }
+
+        return "organizations"; // works for any work/school account
+    }
+
     // ── Sign-in flow ──────────────────────────────────────────────────────────
 
     async startDeviceCodeFlow(): Promise<DeviceCodeResponse> {
