@@ -215,6 +215,7 @@ export default class OnyxAz extends Plugin {
             this.cachedStatus = null;
             new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s).` : "OnyxAz: Already up to date.");
             this.app.workspace.trigger("onyxaz:refresh");
+            this.updateCachedStatus().catch(() => {});
         } catch (e) {
             this.displayError(e);
             this.setState(CurrentAdoAction.idle);
@@ -237,6 +238,7 @@ export default class OnyxAz extends Plugin {
                 this.cachedStatus = null;
                 if (this.settings.notifyOnSuccess) new Notice("OnyxAz: Push complete.");
                 this.app.workspace.trigger("onyxaz:refresh");
+                this.updateCachedStatus().catch(() => {});
             } catch (e) {
                 this.displayError(e);
             } finally {
@@ -256,6 +258,7 @@ export default class OnyxAz extends Plugin {
             this.cachedStatus = null;
             new Notice(`OnyxAz: Force-pulled ${n} file(s) from remote.`);
             this.app.workspace.trigger("onyxaz:refresh");
+            this.updateCachedStatus().catch(() => {});
         } catch (e) {
             this.displayError(e);
         } finally {
@@ -274,6 +277,7 @@ export default class OnyxAz extends Plugin {
             this.cachedStatus = null;
             new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s).` : "OnyxAz: Already up to date.");
             this.app.workspace.trigger("onyxaz:refresh");
+            this.updateCachedStatus().catch(() => {});
         } catch (e) {
             this.displayError(e);
         } finally {
@@ -310,6 +314,7 @@ export default class OnyxAz extends Plugin {
                 this.cachedStatus = null;
                 if (this.settings.notifyOnSuccess) new Notice(`OnyxAz: Pushed ${changes.length} file(s).`);
                 this.app.workspace.trigger("onyxaz:refresh");
+                this.updateCachedStatus().catch(() => {});
             } catch (e) {
                 this.displayError(e);
             } finally {
@@ -334,7 +339,7 @@ export default class OnyxAz extends Plugin {
         this.statusBarInterval = setInterval(() => this.statusBarItem?.display(), 1000);
     }
 
-    private async updateCachedStatus(): Promise<void> {
+    async updateCachedStatus(): Promise<void> {
         if (!this.isConfigured()) return;
         try {
             this.cachedStatus = await this.adoManager.getStatus();

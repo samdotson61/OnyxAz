@@ -201,7 +201,10 @@ export class AdoApiManager extends AdoManager {
                 for (const p of files) {
                     const relativePath = root ? p.slice(root.length) : p;
                     if (!this.shouldIgnore(relativePath) && !result.has(relativePath)) {
-                        result.set(relativePath, 0);
+                        // Get actual mtime so status logic can correctly compare against lastSyncTime.
+                        // Without this, non-indexed files (e.g. .txt) always appear as Modified.
+                        const stat = await this.plugin.app.vault.adapter.stat(p);
+                        result.set(relativePath, stat?.mtime ?? 0);
                     }
                 }
                 for (const folder of folders) {
