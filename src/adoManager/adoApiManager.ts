@@ -343,7 +343,18 @@ export class AdoApiManager extends AdoManager {
             }
         }
         // Write via adapter — bypasses Obsidian's extension filter so .txt etc. always land on disk
-        await this.plugin.app.vault.adapter.writeBinary(normalPath, buffer);
+        try {
+            await this.plugin.app.vault.adapter.writeBinary(normalPath, buffer);
+        } catch (e) {
+            const reason = e instanceof Error ? e.message : String(e);
+            if (reason.includes("EEXIST") || reason.toLowerCase().includes("already exists")) {
+                throw new Error(
+                    `Cannot write "${filePath}" — a folder exists at that path in your vault. ` +
+                    `Rename or remove the conflicting folder, then Force re-pull.`
+                );
+            }
+            throw new Error(`Cannot write "${filePath}" to vault: ${reason}`);
+        }
     }
 
     // ── Push ─────────────────────────────────────────────────────────────────

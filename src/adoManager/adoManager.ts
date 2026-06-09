@@ -65,7 +65,56 @@ export abstract class AdoManager {
             throw: false,
         });
         if (resp.status >= 400) {
-            throw new Error(`ADO API ${resp.status}: ${resp.text}`);
+            // Extract the human-readable message from ADO's JSON envelope
+            // (shape: { message: "TF401179: ...", typeKey: "...", ... })
+            let detail: string;
+            try {
+                detail = resp.json?.message ?? resp.json?.value?.message ?? "";
+            } catch {
+                detail = "";
+            }
+            if (!detail) detail = resp.text || `HTTP ${resp.status}`;
+
+            // Trim noisy TF error-code prefixes (e.g. "TF401179: ")
+            detail = detail.replace(/^TF\d+:\s*/i, "");
+
+            switch (resp.status) {
+                case 401:
+                    throw new Error(
+                        `Authentication failed — your session may have expired. ` +
+                        `Sign in again via Settings → OnyxAz. (${detail})`
+                    );
+                case 403:
+                    throw new Error(
+                        `Access denied — you may not have write access to this repository, ` +
+                        `or a branch policy is blocking the operation. (${detail})`
+                    );
+                case 404:
+                    throw new Error(
+                        `Not found — check your org URL, project name, and repository name ` +
+                        `in Settings → OnyxAz. (${detail})`
+                    );
+                case 409:
+                    throw new Error(
+                        `Push conflict — pull the latest changes from the remote before pushing. (${detail})`
+                    );
+                default: {
+                    // Catch non-fast-forward rejections that ADO sends as 400
+                    const lower = detail.toLowerCase();
+                    if (lower.includes("not a fast-forward") || lower.includes("push was rejected") || lower.includes("push rejected")) {
+                        throw new Error(
+                            `Push rejected — the remote has new commits. Pull first, then push again. (${detail})`
+                        );
+                    }
+                    if (lower.includes("already exists")) {
+                        throw new Error(
+                            `A file or folder already exists at that path in the remote. ` +
+                            `Try a Force re-pull to resync state, then push again. (${detail})`
+                        );
+                    }
+                    throw new Error(`Azure DevOps error (${resp.status}): ${detail}`);
+                }
+            }
         }
         return resp;
     }
