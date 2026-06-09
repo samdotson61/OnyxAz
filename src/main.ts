@@ -12,6 +12,7 @@ import { OnyxAzSettingsTab } from "./setting/settings";
 import { OnboardingModal } from "./ui/onboardingModal";
 import { ConfirmPushModal } from "./ui/confirmPushModal";
 import { ConfirmPullModal } from "./ui/confirmPullModal";
+import { HubModal } from "./ui/hubModal";
 
 const ONYXAZ_ICON = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
   <rect x="10" y="10" width="80" height="80" rx="10" fill="none" stroke="currentColor" stroke-width="8"/>
@@ -45,8 +46,8 @@ export default class OnyxAz extends Plugin {
         this.addSettingTab(new OnyxAzSettingsTab(this.app, this));
         this.refreshStatusBar();
 
-        this.addRibbonIcon("onyxaz", "OnyxAz: Commit and sync", () => {
-            this.promiseQueue.addTask(() => this.commitAndSync());
+        this.addRibbonIcon("onyxaz", "OnyxAz: Open hub", () => {
+            new HubModal(this.app, this).open();
         });
 
         this.registerCommands();
@@ -82,6 +83,18 @@ export default class OnyxAz extends Plugin {
     // ── Commands ──────────────────────────────────────────────────────────────
 
     private registerCommands(): void {
+        this.addCommand({
+            id: "open-hub",
+            name: "Open hub",
+            callback: () => new HubModal(this.app, this).open(),
+        });
+
+        this.addCommand({
+            id: "switch-repository",
+            name: "Switch repository",
+            callback: () => new HubModal(this.app, this).open(),
+        });
+
         this.addCommand({
             id: "commit-and-sync",
             name: "Commit and sync",
@@ -158,6 +171,14 @@ export default class OnyxAz extends Plugin {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    // Called after switching repos so state, status, and automatics all reset cleanly.
+    async resetConnection(): Promise<void> {
+        this.adoManager.resetState();
+        this.cachedStatus = null;
+        this.automaticsManager.reload();
+        await this.updateCachedStatus();
+    }
 
     private makeConflictResolver(): (conflicts: string[]) => Promise<Set<string>> {
         return (conflicts: string[]) =>

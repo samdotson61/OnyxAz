@@ -28,6 +28,10 @@ export abstract class AdoManager {
         return this.cachedState;
     }
 
+    resetState(): void {
+        this.cachedState = null;
+    }
+
     protected get baseUrl(): string {
         const s = this.plugin.settings;
         const org = s.organizationUrl.replace(/\/$/, "");

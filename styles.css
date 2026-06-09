@@ -183,3 +183,68 @@
     gap: 8px;
     margin-bottom: 12px;
 }
+
+/* Hub modal */
+.onyxaz-hub .modal-content {
+    min-width: 320px;
+    max-width: 400px;
+    padding: 20px;
+}
+.onyxaz-hub-card {
+    background: var(--background-secondary);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    border: 1px solid var(--background-modifier-border);
+}
+.onyxaz-hub-label {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.onyxaz-hub-repo {
+    font-weight: 600;
+    font-size: var(--font-ui-medium);
+    margin-bottom: 2px;
+}
+.onyxaz-hub-meta {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    margin-top: 3px;
+}
+.onyxaz-hub-path {
+    font-family: var(--font-monospace);
+    font-size: var(--font-smaller);
+    color: var(--text-faint);
+    margin-top: 6px;
+}
+.onyxaz-hub-pending {
+    font-size: var(--font-smaller);
+    color: var(--color-orange);
+    font-weight: 500;
+    margin-top: 6px;
+}
+.onyxaz-hub-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.onyxaz-hub-btn {
+    width: 100%;
+    text-align: center;
+}
+.onyxaz-hub-link {
+    display: block;
+    text-align: center;
+    padding: 6px;
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    text-decoration: none;
+    border-radius: 4px;
+}
+.onyxaz-hub-link:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
