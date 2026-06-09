@@ -183,7 +183,7 @@ export default class OnyxAz extends Plugin {
     private makeConflictResolver(): (conflicts: string[]) => Promise<Set<string>> {
         return (conflicts: string[]) =>
             new Promise<Set<string>>((resolve) => {
-                new ConfirmPullModal(this.app, conflicts, resolve).open();
+                new ConfirmPullModal(this.app, this, conflicts, resolve).open();
             });
     }
 

@@ -40,16 +40,77 @@
     margin: 4px 0 12px;
 }
 
+/* ── Shared: destination / source banner ─────────────────────────────── */
+.onyxaz-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    border: 1px solid var(--background-modifier-border);
+}
+.onyxaz-banner-push {
+    background: color-mix(in srgb, var(--color-blue) 10%, var(--background-secondary));
+    border-color: color-mix(in srgb, var(--color-blue) 30%, transparent);
+}
+.onyxaz-banner-pull {
+    background: color-mix(in srgb, var(--color-green) 10%, var(--background-secondary));
+    border-color: color-mix(in srgb, var(--color-green) 30%, transparent);
+}
+.onyxaz-banner-icon {
+    font-size: 1.6em;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+.onyxaz-banner-label {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+}
+.onyxaz-banner-value {
+    font-weight: 600;
+    font-size: var(--font-ui-medium);
+}
+
+/* ── Shared: summary chips ───────────────────────────────────────────── */
+.onyxaz-summary-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.onyxaz-chip {
+    font-size: var(--font-smaller);
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+}
+.onyxaz-chip-added    { background: color-mix(in srgb, var(--color-green)  15%, transparent); border-color: var(--color-green);  color: var(--color-green); }
+.onyxaz-chip-modified { background: color-mix(in srgb, var(--color-yellow) 15%, transparent); border-color: var(--color-yellow); color: var(--color-yellow); }
+.onyxaz-chip-deleted  { background: color-mix(in srgb, var(--color-red)    15%, transparent); border-color: var(--color-red);   color: var(--color-red); }
+
+/* ── Shared: warning box ─────────────────────────────────────────────── */
+.onyxaz-warning-box {
+    font-size: var(--font-smaller);
+    color: var(--color-orange);
+    background: color-mix(in srgb, var(--color-orange) 10%, var(--background-secondary));
+    border: 1px solid color-mix(in srgb, var(--color-orange) 30%, transparent);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin: 12px 0 8px;
+}
+
 /* ── Confirm push modal ──────────────────────────────────────────────── */
 .onyxaz-confirm-push .modal-content {
     min-width: 480px;
     max-width: 600px;
     padding: 24px;
-}
-.onyxaz-push-destination {
-    font-size: var(--font-smaller);
-    color: var(--text-muted);
-    margin: 0 0 12px;
 }
 .onyxaz-label {
     font-size: var(--font-smaller);
@@ -181,7 +242,14 @@
 .onyxaz-pull-bulk {
     display: flex;
     gap: 8px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
+}
+.onyxaz-pull-summary {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    min-height: 18px;
+    margin-bottom: 4px;
+    font-style: italic;
 }
 
 /* Hub modal */

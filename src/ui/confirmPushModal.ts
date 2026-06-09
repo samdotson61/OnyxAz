@@ -20,21 +20,40 @@ export class ConfirmPushModal extends Modal {
     onOpen(): void {
         const { contentEl } = this;
         const s = this.plugin.settings;
-        this.titleEl.setText("Push to Azure DevOps");
+        this.titleEl.setText("Confirm Push");
 
-        contentEl.createEl("p", {
-            cls: "onyxaz-push-destination",
-            text: `${s.project}  /  ${s.repository}  ·  branch: ${s.branch}`,
+        // ── Destination banner ────────────────────────────────────────────────
+        const dest = contentEl.createDiv({ cls: "onyxaz-banner onyxaz-banner-push" });
+        dest.createEl("span", { cls: "onyxaz-banner-icon", text: "↑" });
+        const destInfo = dest.createDiv({ cls: "onyxaz-banner-info" });
+        destInfo.createEl("div", { cls: "onyxaz-banner-label", text: "Pushing to" });
+        destInfo.createEl("div", {
+            cls: "onyxaz-banner-value",
+            text: `${s.project}  /  ${s.repository}  ·  ${s.branch}`,
         });
 
-        const added = this.changes.filter(f => f.status === "A");
+        // ── Change summary chips ──────────────────────────────────────────────
+        const added    = this.changes.filter(f => f.status === "A");
         const modified = this.changes.filter(f => f.status === "M");
-        const deleted = this.changes.filter(f => f.status === "D");
+        const deleted  = this.changes.filter(f => f.status === "D");
 
-        this.renderGroup(contentEl, "+ Added", added, "onyxaz-added");
+        const summary = contentEl.createDiv({ cls: "onyxaz-summary-row" });
+        if (added.length)    this.chip(summary, `+ ${added.length} added`,    "onyxaz-chip-added");
+        if (modified.length) this.chip(summary, `~ ${modified.length} modified`, "onyxaz-chip-modified");
+        if (deleted.length)  this.chip(summary, `− ${deleted.length} deleted`,  "onyxaz-chip-deleted");
+
+        // ── File groups ───────────────────────────────────────────────────────
+        this.renderGroup(contentEl, "+ Added",    added,    "onyxaz-added");
         this.renderGroup(contentEl, "~ Modified", modified, "onyxaz-modified");
-        this.renderGroup(contentEl, "− Deleted", deleted, "onyxaz-deleted");
+        this.renderGroup(contentEl, "− Deleted",  deleted,  "onyxaz-deleted");
 
+        // ── Warning ───────────────────────────────────────────────────────────
+        contentEl.createDiv({
+            cls: "onyxaz-warning-box",
+            text: "⚠  These changes will be written to the remote repository. This cannot be automatically undone.",
+        });
+
+        // ── Commit message ────────────────────────────────────────────────────
         contentEl.createEl("label", { text: "Commit message", cls: "onyxaz-label" });
         const input = contentEl.createEl("input", { cls: "onyxaz-commit-input" }) as HTMLInputElement;
         input.type = "text";
@@ -43,13 +62,17 @@ export class ConfirmPushModal extends Modal {
             if (input.value.trim()) this.commitMessage = input.value;
         });
 
+        // ── Buttons ───────────────────────────────────────────────────────────
         const row = contentEl.createDiv({ cls: "onyxaz-nav-row" });
+
         const cancelBtn = row.createEl("button", { text: "Cancel" });
         cancelBtn.addEventListener("click", () => this.close());
 
         const n = this.changes.length;
-        const pushBtn = row.createEl("button", { text: `Push ${n} file${n !== 1 ? "s" : ""}` });
-        pushBtn.addClass("mod-warning");
+        const pushBtn = row.createEl("button", {
+            text: `Push ${n} file${n !== 1 ? "s" : ""} to remote →`,
+        });
+        pushBtn.addClass("mod-cta");
         pushBtn.addEventListener("click", async () => {
             pushBtn.disabled = true;
             pushBtn.textContent = "Pushing…";
@@ -59,10 +82,14 @@ export class ConfirmPushModal extends Modal {
                 this.close();
             } catch {
                 pushBtn.disabled = false;
-                pushBtn.textContent = `Push ${n} file${n !== 1 ? "s" : ""}`;
+                pushBtn.textContent = `Push ${n} file${n !== 1 ? "s" : ""} to remote →`;
                 cancelBtn.disabled = false;
             }
         });
+    }
+
+    private chip(parent: HTMLElement, text: string, cls: string): void {
+        parent.createEl("span", { text, cls: `onyxaz-chip ${cls}` });
     }
 
     private renderGroup(containerEl: HTMLElement, label: string, files: FileStatus[], cls: string): void {
