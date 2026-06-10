@@ -1,3 +1,16 @@
+# Dependencies
 node_modules/
+
+# Build output
 main.js
 *.js.map
+
+# Organization-specific deliverables (contain PII / org identifiers — never publish)
+# The employee guide and its generator are tailored per-organization and must
+# stay local. Keep a generic template in the README instead.
+*.docx
+scripts/make-guide.js
+
+# Baked-in SSO config (Azure client/tenant IDs for internal deployment)
+# Keep onyxaz.local.example.json tracked as a template.
+onyxaz.local.json

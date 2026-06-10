@@ -8,6 +8,7 @@ type Step = "welcome" | "signin" | "browse" | "done";
 
 export class OnboardingModal extends Modal {
     private step: Step = "welcome";
+    private authChoice: "entra" | "pat" = "entra";
     private deviceCode: DeviceCodeResponse | null = null;
     private authFlowActive = false;
     private signinEmail = "";
@@ -46,19 +47,19 @@ export class OnboardingModal extends Modal {
     private titleForStep(): string {
         switch (this.step) {
             case "welcome": return "Connect to Azure DevOps";
-            case "signin":  return "Sign in with Microsoft";
+            case "signin":  return this.authChoice === "pat" ? "Personal Access Token" : "Sign in with Microsoft";
             case "browse":  return "Select Repository";
             case "done":    return "You're all set!";
         }
     }
 
-    // ── Step 1: Welcome + org URL ─────────────────────────────────────────────
+    // ── Step 1: Welcome + org URL + auth choice ───────────────────────────────
 
     private renderWelcome(): void {
         const { contentEl } = this;
 
         contentEl.createEl("p", {
-            text: "OnyxAz syncs this vault with an Azure DevOps Git repository. Sign in with your Microsoft work account to get started.",
+            text: "OnyxAz syncs this vault with an Azure DevOps Git repository.",
         });
 
         let orgUrl = this.plugin.settings.organizationUrl;
@@ -73,59 +74,96 @@ export class OnboardingModal extends Modal {
                     .onChange((v) => { orgUrl = v.trim(); })
             );
 
-        // Show client ID field only when no default is baked in
-        const needsClientId = !ONYX_AZ_DEFAULT_CLIENT_ID && !this.plugin.settings.entraClientId;
-        if (needsClientId) {
-            let clientId = this.plugin.settings.entraClientId;
-            contentEl.createEl("p", {
-                cls: "onyxaz-hint",
-                text: "Ask your Azure AD admin for the OnyxAz app Client ID, then paste it below.",
-            });
-            new Setting(contentEl)
-                .setName("Azure App Client ID")
-                .setDesc("One-time setup — your team shares this ID.")
-                .addText((t) =>
-                    t
-                        .setPlaceholder("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
-                        .setValue(clientId)
-                        .onChange((v) => { clientId = v.trim(); })
-                );
+        contentEl.createEl("p", {
+            text: "How would you like to sign in?",
+            cls: "onyxaz-hint",
+        });
 
-            this.navButtons(contentEl, {
-                next: {
-                    label: "Next →",
-                    cta: true,
-                    onClick: async () => {
-                        if (!orgUrl) { new Notice("Please enter your organization URL."); return; }
-                        if (!clientId) { new Notice("Please enter the Azure App Client ID."); return; }
-                        this.plugin.settings.organizationUrl = orgUrl;
-                        this.plugin.settings.entraClientId = clientId;
-                        await this.plugin.saveSettings();
-                        this.step = "signin";
-                        this.render();
-                    },
-                },
+        const choiceRow = contentEl.createDiv({ cls: "onyxaz-auth-choice-row" });
+
+        const makeChoice = (label: string, desc: string, choice: "entra" | "pat") => {
+            const btn = choiceRow.createEl("button", { cls: "onyxaz-auth-choice-btn" });
+            btn.createEl("span", { text: label, cls: "onyxaz-auth-choice-label" });
+            btn.createEl("span", { text: desc, cls: "onyxaz-auth-choice-desc" });
+            btn.addEventListener("click", async () => {
+                if (!orgUrl) { new Notice("Please enter your organization URL first."); return; }
+                this.plugin.settings.organizationUrl = orgUrl;
+                await this.plugin.saveSettings();
+                this.authChoice = choice;
+                this.step = "signin";
+                this.render();
             });
-        } else {
-            this.navButtons(contentEl, {
-                next: {
-                    label: "Next →",
-                    cta: true,
-                    onClick: async () => {
-                        if (!orgUrl) { new Notice("Please enter your organization URL."); return; }
-                        this.plugin.settings.organizationUrl = orgUrl;
-                        await this.plugin.saveSettings();
-                        this.step = "signin";
-                        this.render();
-                    },
-                },
-            });
-        }
+        };
+
+        makeChoice(
+            "SSO for Teams →",
+            "Microsoft sign-in via device code. Requires an Azure app registered by your IT admin.",
+            "entra"
+        );
+        makeChoice(
+            "PAT for Individuals →",
+            "Personal Access Token — quick setup, no admin needed.",
+            "pat"
+        );
     }
 
     // ── Step 2: Sign in ───────────────────────────────────────────────────────
 
     private renderSignIn(): void {
+        if (this.authChoice === "pat") {
+            this.renderSignInPat();
+        } else {
+            this.renderSignInSso();
+        }
+    }
+
+    private renderSignInPat(): void {
+        const { contentEl } = this;
+
+        contentEl.createEl("p", {
+            text: "Create a Personal Access Token in Azure DevOps and paste it below.",
+        });
+
+        const box = contentEl.createDiv({ cls: "onyxaz-code-box" });
+        const orgBase = this.plugin.settings.organizationUrl.replace(/\/$/, "");
+        box.createEl("p", { text: "1. Open your Personal Access Tokens page:" });
+        box.createEl("a", {
+            text: `${orgBase}/_usersSettings/tokens ↗`,
+            href: `${orgBase}/_usersSettings/tokens`,
+        }).setAttr("target", "_blank");
+        box.createEl("p", { text: "2. New Token → scope: Code (Read & Write) → Create" });
+        box.createEl("p", { text: "3. Copy the token and paste it below" });
+
+        let pat = this.plugin.settings.pat;
+        new Setting(contentEl)
+            .setName("Personal Access Token")
+            .addText((t) =>
+                t
+                    .setPlaceholder("Paste your token here")
+                    .setValue(pat)
+                    .onChange((v) => { pat = v.trim(); })
+            );
+
+        this.navButtons(contentEl, {
+            back: { label: "← Back", onClick: () => { this.step = "welcome"; this.render(); } },
+            next: {
+                label: "Connect →",
+                cta: true,
+                onClick: async (btn) => {
+                    if (!pat) { new Notice("Please paste your Personal Access Token."); return; }
+                    btn.textContent = "Connecting…";
+                    btn.disabled = true;
+                    this.plugin.settings.pat = pat;
+                    this.plugin.settings.authMethod = "pat";
+                    await this.plugin.saveSettings();
+                    this.step = "browse";
+                    this.render();
+                },
+            },
+        });
+    }
+
+    private renderSignInSso(): void {
         const { contentEl } = this;
 
         // ── Device code waiting screen ────────────────────────────────────────
@@ -150,6 +188,15 @@ export class OnboardingModal extends Modal {
                 }},
             });
             return;
+        }
+
+        // ── No client ID warning ──────────────────────────────────────────────
+        const hasClientId = !!(ONYX_AZ_DEFAULT_CLIENT_ID || this.plugin.settings.entraClientId);
+        if (!hasClientId) {
+            const warn = contentEl.createDiv({ cls: "onyxaz-warning-box" });
+            warn.createEl("p", {
+                text: "⚠ SSO requires an Azure app registration by your IT admin (see the README). If you're setting this up yourself, go back and use PAT instead.",
+            });
         }
 
         // ── Email input screen ────────────────────────────────────────────────
@@ -179,7 +226,6 @@ export class OnboardingModal extends Modal {
                     btn.textContent = "Discovering…";
                     btn.disabled = true;
                     try {
-                        // Discover tenant from email domain (if provided)
                         if (this.signinEmail) {
                             const tenant = await this.plugin.entraAuth.discoverTenantFromEmail(this.signinEmail);
                             this.plugin.settings.entraTenantId = tenant;
@@ -270,7 +316,7 @@ export class OnboardingModal extends Modal {
     // ── Finish ────────────────────────────────────────────────────────────────
 
     private async finishOnboarding(): Promise<void> {
-        this.plugin.settings.authMethod = "entra";
+        this.plugin.settings.authMethod = this.authChoice;
         this.plugin.settings.hasCompletedOnboarding = true;
         await this.plugin.saveSettings();
         this.plugin.automaticsManager.reload();

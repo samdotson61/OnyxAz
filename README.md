@@ -35,13 +35,18 @@ For OnyxAz to authenticate with Microsoft Entra, an Azure app registration is re
 
 ### 2. Bake the Client ID into the plugin
 
-Open `src/constants.ts` and set:
+Copy `onyxaz.local.example.json` to `onyxaz.local.json` and fill in your Azure app details:
 
-```ts
-export const ONYX_AZ_DEFAULT_CLIENT_ID = "your-application-client-id-here";
+```json
+{
+  "clientId": "your-application-client-id-here",
+  "tenantId": "your-tenant-id-or-organizations"
+}
 ```
 
 Then rebuild (`npm run build`) and distribute `main.js`, `manifest.json`, and `styles.css` to your team.
+
+`onyxaz.local.json` is gitignored, so the IDs are baked into your local `main.js` build only — the tracked source stays generic and reveals nothing about your organization. Set `tenantId` to your directory ID for a single-tenant app, or `"organizations"` to accept any work/school account.
 
 End-users sign in with just their work email — they never see or think about app registrations.
 

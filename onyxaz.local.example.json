@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy this file to onyxaz.local.json (gitignored) and fill in your Azure app details to bake one-click SSO into your local build. Leave clientId blank to ship a generic plugin where users enter their own Client ID or use a PAT.",
+  "clientId": "",
+  "tenantId": "organizations"
+}

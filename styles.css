@@ -27,6 +27,42 @@
     color: var(--text-accent);
 }
 
+/* Auth method choice cards on welcome screen */
+.onyxaz-auth-choice-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+.onyxaz-auth-choice-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    padding: 12px 14px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-secondary);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 80ms ease, background 80ms ease;
+}
+.onyxaz-auth-choice-btn:hover {
+    background: var(--background-modifier-hover);
+    border-color: var(--interactive-accent);
+}
+.onyxaz-auth-choice-label {
+    font-weight: 600;
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+}
+.onyxaz-auth-choice-desc {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
 .onyxaz-nav-row {
     display: flex;
     justify-content: flex-end;

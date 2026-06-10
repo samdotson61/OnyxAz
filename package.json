@@ -1,6 +1,6 @@
 {
     "name": "obsidian-onyxaz",
-    "version": "0.2.3",
+    "version": "0.3.0",
     "description": "Azure DevOps Git sync for Obsidian",
     "main": "main.js",
     "scripts": {
@@ -13,6 +13,7 @@
     "devDependencies": {
         "@types/node": "^18.0.0",
         "builtin-modules": "3.3.0",
+        "docx": "^9.7.1",
         "esbuild": "0.24.0",
         "obsidian": "latest",
         "tslib": "2.6.0",

@@ -1,12 +1,14 @@
 import type { OnyxAzSettings } from "./types";
 
-// ── Org admin fills these in before distributing the plugin ──────────────────
-// Register an Azure app (multi-tenant, public client, device code flow enabled,
-// Azure DevOps → user_impersonation delegated permission) and paste the IDs here.
-// When set, end-users never see a Client ID field — they just click "Sign in".
-// Leave blank to require users to enter their own Client ID during setup.
-export const ONYX_AZ_DEFAULT_CLIENT_ID = "";
-export const ONYX_AZ_DEFAULT_TENANT_ID = "organizations"; // works for any work/school account
+// ── Baked-in defaults (injected at build time, never hardcoded here) ─────────
+// To deploy internally with one-click SSO, create an `onyxaz.local.json` (see
+// onyxaz.local.example.json) with your Azure app's clientId/tenantId. esbuild
+// injects them at build time so the IDs live only in your local main.js — the
+// tracked source stays generic and reveals nothing about your organization.
+// With no local config these are "" / "organizations" (users enter their own
+// Client ID during setup, or use a Personal Access Token instead).
+export const ONYX_AZ_DEFAULT_CLIENT_ID = process.env.ONYXAZ_DEFAULT_CLIENT_ID || "";
+export const ONYX_AZ_DEFAULT_TENANT_ID = process.env.ONYXAZ_DEFAULT_TENANT_ID || "organizations";
 
 export const DEFAULT_SETTINGS: OnyxAzSettings = {
     hasCompletedOnboarding: false,
