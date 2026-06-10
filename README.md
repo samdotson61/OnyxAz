@@ -1,5 +1,7 @@
 # OnyxAz
 
+[![Build](https://github.com/samdotson61/OnyxAz/actions/workflows/build.yml/badge.svg)](https://github.com/samdotson61/OnyxAz/actions/workflows/build.yml)
+
 Sync your Obsidian vault with an Azure DevOps Git repository — no git installation required.
 
 OnyxAz uses the Azure DevOps REST API directly (via Obsidian's cross-platform `requestUrl`), so it works without a local git binary. It mirrors the experience of [obsidian-git](https://github.com/Vinzent03/obsidian-git) but is built specifically for ADO's org → project → repository → branch structure.
