@@ -35,22 +35,30 @@ For OnyxAz to authenticate with Microsoft Entra, an Azure app registration is re
 6. Go to **Authentication → Add a platform → Mobile and desktop**, add `https://login.microsoftonline.com/common/oauth2/nativeclient` as a redirect URI, and enable **Allow public client flows**
 7. Go to **API permissions → Add a permission → APIs my organization uses** → search **Azure DevOps** → select **user_impersonation** → Add
 
-### 2. Bake the Client ID into the plugin
+### 2. Distribute to your team
 
-Copy `onyxaz.local.example.json` to `onyxaz.local.json` and fill in your Azure app details:
+You **don't need to build per-user or per-machine.** OnyxAz reads an `onyxaz.config.json` next to its plugin files at startup and pre-fills the connection for everyone. Pick whichever distribution method fits your org:
 
-```json
-{
-  "clientId": "your-application-client-id-here",
-  "tenantId": "your-tenant-id-or-organizations"
-}
+**Option A — Ready-to-drop-in folder (recommended).** Run the packaging script once; it builds the plugin and produces a folder + zip containing the plugin files plus `onyxaz.config.json`:
+
+```bash
+node scripts/package-org.mjs --org https://dev.azure.com/yourorg --client <client-id> --tenant <tenant-id>
+# → dist/onyxaz/  and  dist/onyxaz-<org>.zip
 ```
 
-Then rebuild (`npm run build`) and distribute `main.js`, `manifest.json`, and `styles.css` to your team.
+Hand the zip to your team. They extract it into `<their vault>/.obsidian/plugins/` and enable OnyxAz. No build, works on macOS/Linux/mobile too.
 
-`onyxaz.local.json` is gitignored, so the IDs are baked into your local `main.js` build only — the tracked source stays generic and reveals nothing about your organization. Set `tenantId` to your directory ID for a single-tenant app, or `"organizations"` to accept any work/school account.
+**Option B — Windows installer.** Compile `installer/onyxaz.iss` with [Inno Setup](https://jrsoftware.org/isinfo.php) (edit the `#define` defaults at the top first) to produce `OnyxAz-Setup.exe`. It asks the user for their vault folder, copies the plugin in, and writes the config — double-click, no admin rights, never builds.
 
-End-users sign in with just their work email — they never see or think about app registrations.
+**Option C — Just the config file.** Ship the three plugin files plus a hand-written `onyxaz.config.json` in the plugin folder:
+
+```json
+{ "organizationUrl": "https://dev.azure.com/yourorg", "clientId": "<client-id>", "tenantId": "<tenant-id>" }
+```
+
+In all cases end-users sign in with just their work email — they never see or type IDs. They can also paste your setup details via **📋 Import setup details…** in the wizard (it scrapes the org URL, client ID, and tenant from JSON or plain text). Set `tenantId` to your directory ID for a single-tenant app, or `"organizations"` to accept any work/school account.
+
+> **Build-time alternative:** you can instead bake IDs into the build via a gitignored `onyxaz.local.json` (see `onyxaz.local.example.json`) and `npm run build`. The runtime `onyxaz.config.json` above is simpler and avoids per-org builds.
 
 ---
 

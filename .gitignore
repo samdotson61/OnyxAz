@@ -5,6 +5,10 @@ node_modules/
 main.js
 *.js.map
 
+# Per-organization distributables produced by scripts/package-org.mjs
+# (each contains that org's client/tenant IDs — never commit)
+dist/
+
 # Organization-specific deliverables (contain PII / org identifiers — never publish)
 # The employee guide and its generator are tailored per-organization and must
 # stay local. Keep a generic template in the README instead.
@@ -14,3 +18,6 @@ scripts/make-guide.js
 # Baked-in SSO config (Azure client/tenant IDs for internal deployment)
 # Keep onyxaz.local.example.json tracked as a template.
 onyxaz.local.json
+
+# Runtime org config (contains client/tenant IDs) — never commit
+onyxaz.config.json

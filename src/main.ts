@@ -1,4 +1,4 @@
-import { Notice, Plugin, addIcon } from "obsidian";
+import { Notice, Plugin, addIcon, normalizePath } from "obsidian";
 import { DEFAULT_SETTINGS } from "./constants";
 import type { FileStatus, OnyxAzSettings, SyncStatus } from "./types";
 import { CurrentAdoAction } from "./types";
@@ -36,6 +36,7 @@ export default class OnyxAz extends Plugin {
 
     async onload(): Promise<void> {
         await this.loadSettings();
+        await this.loadOrgConfig();
         addIcon("onyxaz", ONYXAZ_ICON);
 
         this.entraAuth = new EntraAuth(this);
@@ -78,6 +79,33 @@ export default class OnyxAz extends Plugin {
 
     async saveSettings(): Promise<void> {
         await this.saveData(this.settings);
+    }
+
+    // Reads an optional onyxaz.config.json shipped in the plugin folder and uses
+    // it to pre-fill org defaults (URL / client ID / tenant). This lets an org
+    // deploy a ready-to-use plugin folder — no build, no manual setup — while
+    // never overwriting values a user has already entered.
+    async loadOrgConfig(): Promise<void> {
+        const dir = this.manifest.dir;
+        if (!dir) return;
+        const path = normalizePath(`${dir}/onyxaz.config.json`);
+        try {
+            if (!(await this.app.vault.adapter.exists(path))) return;
+            const cfg = JSON.parse(await this.app.vault.adapter.read(path));
+            let changed = false;
+            const org = typeof cfg.organizationUrl === "string" ? cfg.organizationUrl.trim() : "";
+            const client = typeof cfg.clientId === "string" ? cfg.clientId.trim() : "";
+            const tenant = typeof cfg.tenantId === "string" ? cfg.tenantId.trim() : "";
+            if (org && !this.settings.organizationUrl) { this.settings.organizationUrl = org; changed = true; }
+            if (client && !this.settings.entraClientId) { this.settings.entraClientId = client; changed = true; }
+            // Treat the generic "organizations" default as unset so a config tenant applies.
+            if (tenant && (!this.settings.entraTenantId || this.settings.entraTenantId === "organizations")) {
+                this.settings.entraTenantId = tenant; changed = true;
+            }
+            if (changed) await this.saveSettings();
+        } catch {
+            // Malformed config — ignore and fall back to normal onboarding.
+        }
     }
 
     // ── Commands ──────────────────────────────────────────────────────────────

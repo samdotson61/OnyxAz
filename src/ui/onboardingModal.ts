@@ -3,6 +3,7 @@ import type OnyxAz from "../main";
 import { ONYX_AZ_DEFAULT_CLIENT_ID } from "../constants";
 import type { DeviceCodeResponse } from "../auth/entraAuth";
 import { RepoTreeModal } from "./repoTreeModal";
+import { ImportSetupModal } from "./importSetupModal";
 import { validateOrgUrl } from "../util/validation";
 
 type Step = "welcome" | "signin" | "browse" | "done";
@@ -74,6 +75,15 @@ export class OnboardingModal extends Modal {
                     .setValue(orgUrl)
                     .onChange((v) => { orgUrl = v.trim(); })
             );
+
+        // Quick-fill from a pasted config / setup document
+        const importBtn = contentEl.createEl("button", {
+            text: "📋 Import setup details…",
+            cls: "onyxaz-import-link",
+        });
+        importBtn.addEventListener("click", () => {
+            new ImportSetupModal(this.app, this.plugin, () => this.render()).open();
+        });
 
         contentEl.createEl("p", {
             text: "How would you like to sign in?",

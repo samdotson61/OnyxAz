@@ -27,6 +27,31 @@
     color: var(--text-accent);
 }
 
+/* Import setup details */
+.onyxaz-import-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--font-monospace);
+    font-size: var(--font-smaller);
+    padding: 8px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    resize: vertical;
+}
+.onyxaz-import-link {
+    background: transparent;
+    border: none;
+    color: var(--text-accent);
+    cursor: pointer;
+    padding: 2px 0;
+    margin-bottom: 8px;
+    font-size: var(--font-smaller);
+    box-shadow: none;
+}
+.onyxaz-import-link:hover { text-decoration: underline; }
+
 /* Auth method choice cards on welcome screen */
 .onyxaz-auth-choice-row {
     display: flex;
