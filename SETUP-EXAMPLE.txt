@@ -1,0 +1,27 @@
+OnyxAz — Setup details for <Your Organization>
+================================================
+
+Organization URL:        https://dev.azure.com/yourorg
+Application (client) ID:  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+(Your tenant is detected automatically from your email — it is not listed here.)
+
+
+How to connect
+--------------
+1. Install OnyxAz: double-click install.cmd (Windows) and pick your vault.
+   Then enable OnyxAz in Obsidian -> Settings -> Community plugins.
+2. On the OnyxAz setup screen, choose "SSO for Teams".
+3. Click "Paste setup document to autofill" and paste this whole message.
+   (The organization URL and client ID fill in automatically.)
+4. Enter your work email address and click "Sign in with Microsoft".
+5. Complete the browser sign-in, then pick your repository.
+
+Need help? Contact your IT team.
+
+
+-------------------------------------------------------------------------------
+FOR ADMINS: copy this file, replace <Your Organization>, the organization URL,
+and the Application (client) ID with your Azure app's values (from Azure portal
+-> App registrations -> your app -> Overview), then send it to your users.
+Leave the tenant out — OnyxAz detects it from each user's email domain.

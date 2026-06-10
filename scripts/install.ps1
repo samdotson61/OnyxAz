@@ -1,8 +1,13 @@
 # OnyxAz quick installer (Windows) — copies the plugin into your Obsidian vault.
 # No administrator rights required. Launched by install.cmd (double-click).
+#
+# Hand a user just this script (via install.cmd) and a setup document — it
+# downloads the plugin from GitHub itself. If your network blocks GitHub, place
+# main.js / manifest.json / styles.css next to install.cmd and it uses those.
 
 $ErrorActionPreference = "Stop"
 $files = @("main.js", "manifest.json", "styles.css")
+$RepoBase = "https://raw.githubusercontent.com/samdotson61/OnyxAz/master"
 
 function Pause-Exit($code) {
     Read-Host "`nPress Enter to close"
@@ -11,15 +16,11 @@ function Pause-Exit($code) {
 
 Write-Host "=== OnyxAz installer ===`n"
 
-# Locate the plugin files: beside this script (release zip) or one level up (repo).
+# Prefer local files (offline / IT-bundled) beside this script or one level up;
+# otherwise we'll download from GitHub after picking the vault.
 $src = $null
 foreach ($c in @($PSScriptRoot, (Split-Path $PSScriptRoot -Parent))) {
     if (Test-Path (Join-Path $c "main.js")) { $src = $c; break }
-}
-if (-not $src) {
-    Write-Host "Could not find main.js next to this script." -ForegroundColor Red
-    Write-Host "Extract the whole OnyxAz download and run install.cmd from inside that folder."
-    Pause-Exit 1
 }
 
 # Discover vaults from Obsidian's own config.
@@ -60,12 +61,30 @@ if (-not (Test-Path (Join-Path $vault ".obsidian"))) {
 
 $dest = Join-Path $vault ".obsidian\plugins\onyxaz"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-foreach ($f in $files) { Copy-Item (Join-Path $src $f) (Join-Path $dest $f) -Force }
+
+if ($src) {
+    Write-Host "`nInstalling from local files in $src ..."
+    foreach ($f in $files) { Copy-Item (Join-Path $src $f) (Join-Path $dest $f) -Force }
+} else {
+    Write-Host "`nDownloading OnyxAz from GitHub..."
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+    foreach ($f in $files) {
+        try {
+            Invoke-WebRequest -Uri "$RepoBase/$f" -OutFile (Join-Path $dest $f) -UseBasicParsing
+        } catch {
+            Write-Host "Could not download $f from GitHub." -ForegroundColor Red
+            Write-Host "If your network blocks GitHub, ask IT for the OnyxAz files (main.js, manifest.json,"
+            Write-Host "styles.css), put them in the same folder as this installer, and run it again."
+            Pause-Exit 1
+        }
+    }
+}
 
 Write-Host "`nDone. OnyxAz installed to:" -ForegroundColor Green
 Write-Host "  $dest`n"
 Write-Host "Next steps:"
 Write-Host "  1. Open Obsidian (restart it if it's already running)."
 Write-Host "  2. Settings -> Community plugins -> enable OnyxAz."
-Write-Host "  3. Follow the setup screen: choose SSO, paste your setup document, sign in."
+Write-Host "  3. On the setup screen: choose SSO, click 'Paste setup document to autofill',"
+Write-Host "     paste your organization's setup document, enter your email, and sign in."
 Pause-Exit 0

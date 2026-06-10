@@ -46,19 +46,22 @@ Application (client) ID:  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 On the sign-in screen, users click **📋 Paste setup document to autofill** and paste this text — OnyxAz scrapes both values out automatically (plain text or JSON both work). Or they type the client ID by hand. Either way, the only thing they personally provide is their work email.
 
+See **[`SETUP-EXAMPLE.txt`](SETUP-EXAMPLE.txt)** for a ready-to-edit template — fill in your org URL and client ID and send it to your team alongside `install.cmd`.
+
 That's it. No packaging step, no installer to build, no config files to ship.
 
 ---
 
 ## Quick Install
 
-OnyxAz is not yet in the Obsidian Community Plugins directory, so install it with the bundled script — no admin rights, no build:
+No release zip, no build — you only need the installer and (for SSO) a setup document.
 
-1. Download the latest release `.zip` from [Releases](../../releases/latest) and extract it anywhere.
-2. **Windows:** double-click **`install.cmd`**.
-   **macOS / Linux:** run `bash install.sh` in the extracted folder.
-3. Pick your vault from the list it shows (or paste the folder path). The script copies OnyxAz into `…/.obsidian/plugins/onyxaz/`.
+1. Get **[`install.cmd`](scripts/install.cmd)** (Windows) — or `scripts/install.sh` for macOS/Linux. Your IT team can hand it to you directly along with your setup document.
+2. **Windows:** double-click **`install.cmd`**.  **macOS / Linux:** run `bash install.sh`.
+3. Pick your vault from the list it shows (or paste the folder path). The installer **downloads OnyxAz from GitHub** and copies it into `…/.obsidian/plugins/onyxaz/` — no admin rights needed.
 4. Open Obsidian → **Settings → Community plugins** → enable **OnyxAz**, then follow the setup screen.
+
+> **Offline / locked-down network:** if your machine can't reach GitHub, put `main.js`, `manifest.json`, and `styles.css` in the same folder as the installer — it uses those instead of downloading.
 
 **Manual alternative:** copy `main.js`, `manifest.json`, and `styles.css` into `<your-vault>/.obsidian/plugins/onyxaz/` yourself, then enable the plugin.
 

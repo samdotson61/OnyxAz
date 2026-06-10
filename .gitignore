@@ -2,7 +2,8 @@
 node_modules/
 
 # Build output
-main.js
+# NOTE: main.js IS committed so the quick installer can download it from GitHub
+# raw. Rebuild (npm run build) and commit it whenever source changes.
 *.js.map
 
 # Organization-specific deliverables (contain PII / org identifiers — never publish)

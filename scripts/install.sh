@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 # OnyxAz quick installer (macOS / Linux) — copies the plugin into your Obsidian
 # vault. No admin rights required. Run:  bash install.sh   (or ./install.sh)
+#
+# Downloads the plugin from GitHub. If your network blocks GitHub, place
+# main.js / manifest.json / styles.css next to this script and it uses those.
 set -e
 
 FILES=(main.js manifest.json styles.css)
+REPO_BASE="https://raw.githubusercontent.com/samdotson61/OnyxAz/master"
 
-# Locate the plugin files: beside this script (release) or one level up (repo).
+# Prefer local files beside this script (or one level up); else download.
 DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC=""
 for c in "$DIR" "$(dirname "$DIR")"; do
     if [ -f "$c/main.js" ]; then SRC="$c"; break; fi
 done
-if [ -z "$SRC" ]; then
-    echo "Could not find main.js next to this script."
-    echo "Extract the whole OnyxAz download and run install.sh from inside that folder."
-    exit 1
-fi
 
 # Try to read vault paths from Obsidian's config (needs python3; optional).
 case "$(uname -s)" in
@@ -25,7 +24,7 @@ esac
 
 VAULT=""
 if [ -f "$CFG" ] && command -v python3 >/dev/null 2>&1; then
-    mapfile -t VAULTS < <(python3 -c "import json,sys;d=json.load(open('$CFG'));[print(v['path']) for v in d.get('vaults',{}).values() if v.get('path')]" 2>/dev/null || true)
+    mapfile -t VAULTS < <(python3 -c "import json;d=json.load(open('$CFG'));[print(v['path']) for v in d.get('vaults',{}).values() if v.get('path')]" 2>/dev/null || true)
     if [ "${#VAULTS[@]}" -gt 0 ]; then
         echo "Obsidian vaults found:"
         for i in "${!VAULTS[@]}"; do echo "  [$((i+1))] ${VAULTS[$i]}"; done
@@ -49,8 +48,22 @@ fi
 
 DEST="$VAULT/.obsidian/plugins/onyxaz"
 mkdir -p "$DEST"
-for f in "${FILES[@]}"; do cp -f "$SRC/$f" "$DEST/$f"; done
+
+if [ -n "$SRC" ]; then
+    echo "Installing from local files in $SRC ..."
+    for f in "${FILES[@]}"; do cp -f "$SRC/$f" "$DEST/$f"; done
+else
+    echo "Downloading OnyxAz from GitHub..."
+    for f in "${FILES[@]}"; do
+        if ! curl -fsSL "$REPO_BASE/$f" -o "$DEST/$f"; then
+            echo "Could not download $f from GitHub."
+            echo "If your network blocks GitHub, ask IT for the OnyxAz files and put them next to this script."
+            exit 1
+        fi
+    done
+fi
 
 echo
 echo "Done. OnyxAz installed to: $DEST"
-echo "Next: open Obsidian, enable OnyxAz in Settings -> Community plugins, then follow the setup screen."
+echo "Next: open Obsidian, enable OnyxAz in Settings -> Community plugins, choose SSO,"
+echo "paste your setup document, enter your email, and sign in."
