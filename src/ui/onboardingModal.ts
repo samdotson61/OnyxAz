@@ -1,6 +1,5 @@
 import { App, Modal, Notice, Setting } from "obsidian";
 import type OnyxAz from "../main";
-import { ONYX_AZ_DEFAULT_CLIENT_ID } from "../constants";
 import type { DeviceCodeResponse } from "../auth/entraAuth";
 import { RepoTreeModal } from "./repoTreeModal";
 import { ImportSetupModal } from "./importSetupModal";
@@ -204,27 +203,40 @@ export class OnboardingModal extends Modal {
             return;
         }
 
-        // ── No client ID warning ──────────────────────────────────────────────
-        const hasClientId = !!(ONYX_AZ_DEFAULT_CLIENT_ID || this.plugin.settings.entraClientId);
-        if (!hasClientId) {
-            const warn = contentEl.createDiv({ cls: "onyxaz-warning-box" });
-            warn.createEl("p", {
-                text: "⚠ SSO requires an Azure app registration by your IT admin (see the README). If you're setting this up yourself, go back and use PAT instead.",
-            });
-        }
-
-        // ── Email input screen ────────────────────────────────────────────────
+        // ── Sign-in screen ────────────────────────────────────────────────────
         contentEl.createEl("p", {
-            text: "Enter your work email address. OnyxAz will automatically configure sign-in for your organization.",
+            text: "Sign in with your organization account. OnyxAz detects your tenant automatically from your email.",
+        });
+
+        // Paste the setup document your IT admin provided to auto-fill the
+        // organization URL and client ID.
+        const importBtn = contentEl.createEl("button", {
+            text: "📋 Paste setup document to autofill…",
+            cls: "onyxaz-import-link",
+        });
+        importBtn.addEventListener("click", () => {
+            new ImportSetupModal(this.app, this.plugin, () => this.render()).open();
         });
 
         new Setting(contentEl)
-            .setName("Work email")
+            .setName("Organization email")
+            .setDesc("Your work account, e.g. you@company.com")
             .addText((t) =>
                 t
-                    .setPlaceholder("you@yourcompany.com")
+                    .setPlaceholder("you@company.com")
                     .setValue(this.signinEmail)
                     .onChange((v) => { this.signinEmail = v.trim(); })
+            );
+
+        let clientId = this.plugin.settings.entraClientId;
+        new Setting(contentEl)
+            .setName("Azure client ID")
+            .setDesc("From your admin's setup document — or paste the document above to fill it automatically.")
+            .addText((t) =>
+                t
+                    .setPlaceholder("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+                    .setValue(clientId)
+                    .onChange((v) => { clientId = v.trim(); })
             );
 
         this.navButtons(contentEl, {
@@ -233,19 +245,24 @@ export class OnboardingModal extends Modal {
                 label: "Sign in with Microsoft",
                 cta: true,
                 onClick: async (btn) => {
-                    if (this.signinEmail && !this.signinEmail.includes("@")) {
-                        new Notice("Please enter a valid work email address.");
+                    if (!this.signinEmail || !this.signinEmail.includes("@")) {
+                        new Notice("Enter your organization email address.");
                         return;
                     }
-                    btn.textContent = "Discovering…";
+                    if (!clientId) {
+                        new Notice("Enter your Azure client ID — ask your admin, or paste your setup document.", 8000);
+                        return;
+                    }
+                    btn.textContent = "Detecting your organization…";
                     btn.disabled = true;
                     try {
-                        if (this.signinEmail) {
-                            const tenant = await this.plugin.entraAuth.discoverTenantFromEmail(this.signinEmail);
-                            this.plugin.settings.entraTenantId = tenant;
-                            await this.plugin.saveSettings();
-                        }
-                        btn.textContent = "Starting…";
+                        // Save the client ID and auto-detect the tenant from the email domain.
+                        this.plugin.settings.entraClientId = clientId;
+                        const tenant = await this.plugin.entraAuth.discoverTenantFromEmail(this.signinEmail);
+                        this.plugin.settings.entraTenantId = tenant;
+                        await this.plugin.saveSettings();
+
+                        btn.textContent = "Starting sign-in…";
                         const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
                         this.deviceCode = dcr;
                         this.authFlowActive = true;

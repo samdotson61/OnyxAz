@@ -21,11 +21,9 @@ OnyxAz uses the Azure DevOps REST API directly (via Obsidian's cross-platform `r
 
 ## Deploying in Your Organization
 
-> **IT admins and internal deployers — start here.**
+> **IT admins — this is the whole job.** Register one Azure app, then send your team a short "setup document" with two values. There is nothing to build, bake, or install per-machine — users get OnyxAz the normal way and configure it on the sign-in screen.
 
-For OnyxAz to authenticate with Microsoft Entra, an Azure app registration is required. This is a **one-time, five-minute task** done once per organization by an Azure AD admin. Once complete, end-users simply enter their work email and click **Sign in** — no Azure portal access, no IDs to copy.
-
-### 1. Register the Azure app
+### 1. Register the Azure app (one-time)
 
 1. In the [Azure portal](https://portal.azure.com), go to **Azure Active Directory → App registrations → New registration**
 2. Name it anything (e.g. `OnyxAz`)
@@ -35,30 +33,20 @@ For OnyxAz to authenticate with Microsoft Entra, an Azure app registration is re
 6. Go to **Authentication → Add a platform → Mobile and desktop**, add `https://login.microsoftonline.com/common/oauth2/nativeclient` as a redirect URI, and enable **Allow public client flows**
 7. Go to **API permissions → Add a permission → APIs my organization uses** → search **Azure DevOps** → select **user_impersonation** → Add
 
-### 2. Distribute to your team
+> The **tenant ID is detected automatically** from each user's email domain — you don't need to distribute it.
 
-You **don't need to build per-user or per-machine.** OnyxAz reads an `onyxaz.config.json` next to its plugin files at startup and pre-fills the connection for everyone. Pick whichever distribution method fits your org:
+### 2. Give your team a setup document
 
-**Option A — Ready-to-drop-in folder (recommended).** Run the packaging script once; it builds the plugin and produces a folder + zip containing the plugin files plus `onyxaz.config.json`:
+Send users a note (email, wiki page, or doc) containing just these two values:
 
-```bash
-node scripts/package-org.mjs --org https://dev.azure.com/yourorg --client <client-id> --tenant <tenant-id>
-# → dist/onyxaz/  and  dist/onyxaz-<org>.zip
+```
+Organization URL:        https://dev.azure.com/yourorg
+Application (client) ID:  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
-Hand the zip to your team. They extract it into `<their vault>/.obsidian/plugins/` and enable OnyxAz. No build, works on macOS/Linux/mobile too.
+On the sign-in screen, users click **📋 Paste setup document to autofill** and paste this text — OnyxAz scrapes both values out automatically (plain text or JSON both work). Or they type the client ID by hand. Either way, the only thing they personally provide is their work email.
 
-**Option B — Windows installer.** Compile `installer/onyxaz.iss` with [Inno Setup](https://jrsoftware.org/isinfo.php) (edit the `#define` defaults at the top first) to produce `OnyxAz-Setup.exe`. It asks the user for their vault folder, copies the plugin in, and writes the config — double-click, no admin rights, never builds.
-
-**Option C — Just the config file.** Ship the three plugin files plus a hand-written `onyxaz.config.json` in the plugin folder:
-
-```json
-{ "organizationUrl": "https://dev.azure.com/yourorg", "clientId": "<client-id>", "tenantId": "<tenant-id>" }
-```
-
-In all cases end-users sign in with just their work email — they never see or type IDs. They can also paste your setup details via **📋 Import setup details…** in the wizard (it scrapes the org URL, client ID, and tenant from JSON or plain text). Set `tenantId` to your directory ID for a single-tenant app, or `"organizations"` to accept any work/school account.
-
-> **Build-time alternative:** you can instead bake IDs into the build via a gitignored `onyxaz.local.json` (see `onyxaz.local.example.json`) and `npm run build`. The runtime `onyxaz.config.json` above is simpler and avoids per-org builds.
+That's it. No packaging step, no installer to build, no config files to ship.
 
 ---
 
@@ -78,21 +66,18 @@ OnyxAz is not yet listed in the Obsidian Community Plugins directory. Install ma
 
 OnyxAz guides you through a setup wizard on first install. No Azure portal access is required as an end user.
 
-### Step 1 — Organization URL
+### Step 1 — Organization URL & sign-in method
 
-Enter your ADO organization URL:
-
-```
-https://dev.azure.com/myorg
-```
+Enter your ADO organization URL (e.g. `https://dev.azure.com/myorg`) and choose **SSO for Teams**.
 
 ### Step 2 — Sign in with Microsoft
 
-Enter your **work email address** and click **Sign in with Microsoft**.
+On the sign-in screen:
 
-OnyxAz automatically discovers the sign-in settings for your organization from your email domain — no tenant ID, client ID, or Azure portal access needed.
-
-A device code will appear — open the link in your browser, enter the code, and sign in. The plugin handles token refresh automatically.
+1. If your IT team gave you a **setup document**, click **📋 Paste setup document to autofill** and paste it — the organization URL and client ID fill in automatically.
+2. Enter your **organization email** (e.g. `you@company.com`). Your tenant is detected from it automatically — no tenant ID to look up.
+3. Make sure the **Azure client ID** field is filled (autofilled from the setup document, or type it from your admin).
+4. Click **Sign in with Microsoft**. A device code appears — open the link, enter the code, and sign in. Token refresh is automatic afterward.
 
 ### Step 3 — Pick a repository
 
