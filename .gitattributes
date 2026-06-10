@@ -1,0 +1,6 @@
+# Keep the committed build artifact LF so the Linux CI build matches byte-for-byte
+# (otherwise CRLF/LF differences would make CI re-commit main.js on every push).
+main.js text eol=lf
+
+# Shell installer must stay LF to run on macOS/Linux.
+*.sh text eol=lf

@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [master, main]
 
+# Allow the build job to commit a refreshed main.js back to the repo.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,3 +36,20 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Commit refreshed main.js
+        # Keep the committed build artifact (which the quick installer downloads
+        # from raw) in lockstep with source. Only on direct pushes to the default
+        # branch, and only when main.js actually changed. Pushes made with the
+        # built-in GITHUB_TOKEN do not retrigger this workflow, so there's no loop.
+        if: github.event_name == 'push'
+        run: |
+          if git diff --quiet -- main.js; then
+            echo "main.js already up to date — nothing to commit."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add main.js
+            git commit -m "chore: rebuild main.js [skip ci]"
+            git push
+          fi
