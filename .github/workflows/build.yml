@@ -18,7 +18,11 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        # Use `npm install` rather than `npm ci`: the lockfile is generated on
+        # Windows, and `npm ci` does not reliably install platform-native optional
+        # deps (rolldown/lightningcss/esbuild) on Linux (npm/cli#4828). `npm install`
+        # re-resolves the correct binaries for the runner's platform.
+        run: npm install --no-audit --no-fund
 
       - name: Lint
         run: npm run lint
