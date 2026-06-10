@@ -3,6 +3,7 @@ import type OnyxAz from "../main";
 import { ONYX_AZ_DEFAULT_CLIENT_ID } from "../constants";
 import type { DeviceCodeResponse } from "../auth/entraAuth";
 import { RepoTreeModal } from "./repoTreeModal";
+import { validateOrgUrl } from "../util/validation";
 
 type Step = "welcome" | "signin" | "browse" | "done";
 
@@ -87,6 +88,9 @@ export class OnboardingModal extends Modal {
             btn.createEl("span", { text: desc, cls: "onyxaz-auth-choice-desc" });
             btn.addEventListener("click", async () => {
                 if (!orgUrl) { new Notice("Please enter your organization URL first."); return; }
+                const check = validateOrgUrl(orgUrl);
+                if (check.error) { new Notice(`OnyxAz: ${check.error}`, 8000); return; }
+                if (check.warning) new Notice(`OnyxAz: ${check.warning}`, 10000);
                 this.plugin.settings.organizationUrl = orgUrl;
                 await this.plugin.saveSettings();
                 this.authChoice = choice;

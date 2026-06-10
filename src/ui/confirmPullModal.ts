@@ -76,7 +76,7 @@ export class ConfirmPullModal extends Modal {
 
         allOverwrite.addEventListener("click", () => {
             this.kept.clear();
-            listEl.querySelectorAll(".onyxaz-pull-toggle").forEach((btn, i) => {
+            listEl.querySelectorAll(".onyxaz-pull-toggle").forEach((btn) => {
                 const toggle = btn as HTMLButtonElement;
                 toggle.textContent = "Overwrite";
                 toggle.classList.add("mod-cta");
@@ -88,7 +88,7 @@ export class ConfirmPullModal extends Modal {
 
         allKeep.addEventListener("click", () => {
             this.conflicts.forEach((p) => this.kept.add(p));
-            listEl.querySelectorAll(".onyxaz-pull-toggle").forEach((btn, i) => {
+            listEl.querySelectorAll(".onyxaz-pull-toggle").forEach((btn) => {
                 const toggle = btn as HTMLButtonElement;
                 toggle.textContent = "Keep local";
                 toggle.classList.add("mod-warning");

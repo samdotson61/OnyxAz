@@ -7,6 +7,7 @@ import {
     ONYX_AZ_DEFAULT_TENANT_ID,
 } from "../constants";
 import type OnyxAz from "../main";
+import { parseTenantFromIssuer } from "../util/tenant";
 
 export interface DeviceCodeResponse {
     device_code: string;
@@ -59,12 +60,8 @@ export class EntraAuth {
             });
             if (resp.status === 200) {
                 // issuer format: "https://login.microsoftonline.com/{tenantId}/v2.0"
-                const issuer: string = resp.json?.issuer ?? "";
-                const match = issuer.match(/login\.microsoftonline\.com\/([^/]+)/);
-                const tenantId = match?.[1];
-                if (tenantId && tenantId !== "common" && tenantId !== "organizations") {
-                    return tenantId;
-                }
+                const tenantId = parseTenantFromIssuer(resp.json?.issuer ?? "");
+                if (tenantId) return tenantId;
             }
         } catch { /* fall through */ }
 

@@ -3,6 +3,7 @@ import type OnyxAz from "../main";
 import type { DeviceCodeResponse } from "../auth/entraAuth";
 import { ONYX_AZ_DEFAULT_CLIENT_ID } from "../constants";
 import { OnboardingModal } from "../ui/onboardingModal";
+import { validateOrgUrl } from "../util/validation";
 
 export class OnyxAzSettingsTab extends PluginSettingTab {
     private deviceCode: DeviceCodeResponse | null = null;
@@ -123,8 +124,16 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                     .setPlaceholder("https://dev.azure.com/myorg")
                     .setValue(this.plugin.settings.organizationUrl)
                     .onChange(async (v) => {
-                        this.plugin.settings.organizationUrl = v.trim();
+                        const url = v.trim();
+                        this.plugin.settings.organizationUrl = url;
                         await this.plugin.saveSettings();
+                        // Warn if the URL isn't a safe Azure DevOps host — the access
+                        // token is sent to whatever host this points at.
+                        if (url) {
+                            const check = validateOrgUrl(url);
+                            if (check.error) new Notice(`OnyxAz: ${check.error}`, 8000);
+                            else if (check.warning) new Notice(`OnyxAz: ${check.warning}`, 10000);
+                        }
                     })
             );
 
@@ -398,6 +407,13 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
         containerEl.createEl("p", {
             cls: "onyxaz-hint",
             text: "Use a Personal Access Token instead of Microsoft sign-in, or override the Azure App Client ID.",
+        });
+
+        containerEl.createEl("p", {
+            cls: "onyxaz-warning-box",
+            text: "🔒 Sign-in tokens and any Personal Access Token are stored unencrypted in this " +
+                "vault's .obsidian/plugins/onyxaz/data.json. Don't commit your .obsidian folder to a " +
+                "shared or public repository, and use a PAT with the minimum scope (Code: Read & Write).",
         });
 
         new Setting(containerEl)

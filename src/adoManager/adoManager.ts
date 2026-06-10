@@ -2,7 +2,6 @@ import { requestUrl } from "obsidian";
 import type { RequestUrlResponse } from "obsidian";
 import type OnyxAz from "../main";
 import type { LogEntry, SyncState, SyncStatus } from "../types";
-import { ADO_API_VERSION } from "../constants";
 
 export abstract class AdoManager {
     protected cachedState: SyncState | null = null;
@@ -78,41 +77,51 @@ export abstract class AdoManager {
             // Trim noisy TF error-code prefixes (e.g. "TF401179: ")
             detail = detail.replace(/^TF\d+:\s*/i, "");
 
+            const fail = (message: string): never => {
+                const err = new Error(message) as Error & { status?: number };
+                err.status = resp.status;
+                throw err;
+            };
+
             switch (resp.status) {
                 case 401:
-                    throw new Error(
+                    fail(
                         `Authentication failed — your session may have expired. ` +
                         `Sign in again via Settings → OnyxAz. (${detail})`
                     );
+                    break;
                 case 403:
-                    throw new Error(
+                    fail(
                         `Access denied — you may not have write access to this repository, ` +
                         `or a branch policy is blocking the operation. (${detail})`
                     );
+                    break;
                 case 404:
-                    throw new Error(
+                    fail(
                         `Not found — check your org URL, project name, and repository name ` +
                         `in Settings → OnyxAz. (${detail})`
                     );
+                    break;
                 case 409:
-                    throw new Error(
+                    fail(
                         `Push conflict — pull the latest changes from the remote before pushing. (${detail})`
                     );
+                    break;
                 default: {
                     // Catch non-fast-forward rejections that ADO sends as 400
                     const lower = detail.toLowerCase();
                     if (lower.includes("not a fast-forward") || lower.includes("push was rejected") || lower.includes("push rejected")) {
-                        throw new Error(
+                        fail(
                             `Push rejected — the remote has new commits. Pull first, then push again. (${detail})`
                         );
                     }
                     if (lower.includes("already exists")) {
-                        throw new Error(
+                        fail(
                             `A file or folder already exists at that path in the remote. ` +
                             `Try a Force re-pull to resync state, then push again. (${detail})`
                         );
                     }
-                    throw new Error(`Azure DevOps error (${resp.status}): ${detail}`);
+                    fail(`Azure DevOps error (${resp.status}): ${detail}`);
                 }
             }
         }

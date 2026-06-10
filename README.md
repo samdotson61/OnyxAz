@@ -2,7 +2,9 @@
 
 Sync your Obsidian vault with an Azure DevOps Git repository — no git installation required.
 
-OnyxAz uses the Azure DevOps REST API directly, so it works on any machine (including mobile) without a local git binary. It mirrors the experience of [obsidian-git](https://github.com/Vinzent03/obsidian-git) but is built specifically for ADO's org → project → repository → branch structure.
+OnyxAz uses the Azure DevOps REST API directly (via Obsidian's cross-platform `requestUrl`), so it works without a local git binary. It mirrors the experience of [obsidian-git](https://github.com/Vinzent03/obsidian-git) but is built specifically for ADO's org → project → repository → branch structure.
+
+> **Platform note:** OnyxAz is built and tested on desktop. The REST API layer is cross-platform, so mobile may work, but the Microsoft sign-in browser hand-off is currently untested on mobile — use a Personal Access Token there if SSO doesn't complete.
 
 ---
 
@@ -194,7 +196,14 @@ OnyxAz always ignores:
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
 
-To ignore additional files, create a `.onyxazignore` file in your vault root using the same syntax as `.gitignore`.
+To ignore additional files, create a `.onyxazignore` file in your vault root. It supports a practical subset of `.gitignore` syntax:
+
+```
+*.pdf          # any file ending in .pdf
+private/       # a folder and everything under it
+scratch.md     # a specific file
+# lines starting with # are comments
+```
 
 ---
 

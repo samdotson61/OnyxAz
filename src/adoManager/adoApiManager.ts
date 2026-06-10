@@ -1,12 +1,33 @@
 import { normalizePath, Notice, TFile } from "obsidian";
 import { AdoManager } from "./adoManager";
-import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, STATE_FILE_PATH } from "../constants";
+import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, IGNORE_FILE_PATH, STATE_FILE_PATH } from "../constants";
 import type { AdoFile, FileStatus, LogEntry, SyncState, SyncStatus } from "../types";
 import type OnyxAz from "../main";
+import { gitBlobSha1 } from "../util/hash";
+import { matchesIgnore, parseIgnoreFile } from "../util/ignore";
 
 export class AdoApiManager extends AdoManager {
+    // Active ignore patterns (DEFAULT_IGNORED + any from .onyxazignore), refreshed
+    // at the start of each top-level operation via loadIgnorePatterns().
+    private ignorePatterns: string[] = [...DEFAULT_IGNORED];
+
     constructor(plugin: OnyxAz) {
         super(plugin);
+    }
+
+    // Reads the optional .onyxazignore file in the vault root and merges its
+    // patterns with the built-in defaults. Called before each sync operation.
+    private async loadIgnorePatterns(): Promise<void> {
+        const adapter = this.plugin.app.vault.adapter;
+        const path = normalizePath(IGNORE_FILE_PATH);
+        try {
+            if (await adapter.exists(path)) {
+                const contents = await adapter.read(path);
+                this.ignorePatterns = [...DEFAULT_IGNORED, ...parseIgnoreFile(contents)];
+                return;
+            }
+        } catch { /* unreadable — fall back to defaults */ }
+        this.ignorePatterns = [...DEFAULT_IGNORED];
     }
 
     // ── Connection ──────────────────────────────────────────────────────────
@@ -156,10 +177,7 @@ export class AdoApiManager extends AdoManager {
     // ── Ignore logic ─────────────────────────────────────────────────────────
 
     private shouldIgnore(path: string): boolean {
-        return DEFAULT_IGNORED.some((p) => {
-            if (p.endsWith("/")) return path.startsWith(p) || path === p.slice(0, -1);
-            return path === p || path.startsWith(p + "/");
-        });
+        return matchesIgnore(path, this.ignorePatterns);
     }
 
     // ── Sync root ─────────────────────────────────────────────────────────────
@@ -228,9 +246,24 @@ export class AdoApiManager extends AdoManager {
         try { return await this.plugin.app.vault.adapter.readBinary(p); } catch { return null; }
     }
 
+    // True if the local file's content differs from the given last-synced objectId.
+    // Used only as a fallback when mtime is unavailable, so the hashing cost is
+    // bounded to files we can't otherwise judge. Unreadable → treat as changed.
+    private async isContentChanged(filePath: string, knownObjectId: string | undefined): Promise<boolean> {
+        if (!knownObjectId) return true;
+        const buffer = await this.readLocalFile(filePath);
+        if (!buffer) return true;
+        try {
+            return (await gitBlobSha1(buffer)) !== knownObjectId;
+        } catch {
+            return true;
+        }
+    }
+
     // ── Status ───────────────────────────────────────────────────────────────
 
     async getStatus(): Promise<SyncStatus> {
+        await this.loadIgnorePatterns();
         const state = await this.getSyncState();
         const localPaths = await this.getAllLocalPaths(); // path → mtime (0 = unknown)
         const changed: FileStatus[] = [];
@@ -248,8 +281,14 @@ export class AdoApiManager extends AdoManager {
             const knownRemotely = path in state.remoteObjectIds;
             if (!knownRemotely) {
                 changed.push({ path, status: "A" });
-            } else if (mtime === 0 || mtime > syncTime + 1000) {
-                // mtime=0 means Obsidian didn't index it — treat as potentially modified
+            } else if (mtime === 0) {
+                // mtime unavailable (stat failed / not indexed). Don't blindly mark
+                // as modified — compare the content hash to the last-synced objectId
+                // so unchanged files don't show as pending forever.
+                if (await this.isContentChanged(path, state.remoteObjectIds[path])) {
+                    changed.push({ path, status: "M" });
+                }
+            } else if (mtime > syncTime + 1000) {
                 changed.push({ path, status: "M" });
             }
         }
@@ -270,6 +309,7 @@ export class AdoApiManager extends AdoManager {
     async pull(
         resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>
     ): Promise<number> {
+        await this.loadIgnorePatterns();
         const [remoteTree, latestCommitId, state] = await Promise.all([
             this.getRemoteFileTree(),
             this.getLatestCommitId(),
@@ -366,14 +406,27 @@ export class AdoApiManager extends AdoManager {
         const changedFiles = changes ?? (await this.getStatus()).changed;
         if (changedFiles.length === 0) return;
 
-        const [latestCommitId, remoteTree] = await Promise.all([
-            this.getLatestCommitId(),
-            this.getRemoteFileTree(),
-        ]);
+        // Prefer the cached sync state for the base commit + remote path set so we
+        // don't re-download the full remote tree on every push. Fall back to a
+        // live fetch only when there's no state yet (never synced).
+        const state = await this.getSyncState();
+        let baseCommitId: string;
+        let remotePathSet: Set<string>;
+        if (state) {
+            baseCommitId = state.lastSyncedCommitId;
+            remotePathSet = new Set(Object.keys(state.remoteObjectIds));
+        } else {
+            const [cid, tree] = await Promise.all([
+                this.getLatestCommitId(),
+                this.getRemoteFileTree(),
+            ]);
+            baseCommitId = cid;
+            remotePathSet = new Set(tree.map((f) => f.path.replace(/^\//, "")));
+        }
 
-        const remotePathSet = new Set(remoteTree.map((f) => f.path.replace(/^\//, "")));
         const maxBytes = this.plugin.settings.maxAttachmentSizeMB * 1024 * 1024;
         const pushChanges: object[] = [];
+        const pushedPaths: string[] = [];
 
         for (const fileStatus of changedFiles) {
             if (fileStatus.status === "D") {
@@ -381,6 +434,7 @@ export class AdoApiManager extends AdoManager {
                     changeType: "delete",
                     item: { path: `/${fileStatus.path}` },
                 });
+                pushedPaths.push(fileStatus.path);
                 continue;
             }
 
@@ -406,21 +460,12 @@ export class AdoApiManager extends AdoManager {
                     contentType: "base64Encoded",
                 },
             });
+            pushedPaths.push(fileStatus.path);
         }
 
         if (pushChanges.length === 0) return;
 
-        const payload = {
-            refUpdates: [
-                { name: `refs/heads/${this.plugin.settings.branch}`, oldObjectId: latestCommitId },
-            ],
-            commits: [{ comment: message, changes: pushChanges }],
-        };
-
-        await this.apiFetch(`${this.baseUrl}/pushes?api-version=${ADO_API_VERSION}`, {
-            method: "POST",
-            body: JSON.stringify(payload),
-        });
+        await this.executePush(message, pushChanges, pushedPaths, baseCommitId, state);
 
         // Refresh state after push
         const [newCommitId, newRemoteTree] = await Promise.all([
@@ -436,6 +481,48 @@ export class AdoApiManager extends AdoManager {
             lastSyncTime: Date.now(),
             remoteObjectIds,
         });
+    }
+
+    // Posts the commit, retrying once if the remote advanced since our base commit
+    // (ADO returns 409 / "not a fast-forward"). We only auto-retry when none of the
+    // files we're pushing were changed remotely — otherwise retrying would silently
+    // overwrite a concurrent edit, so we re-throw the original "pull first" error.
+    private async executePush(
+        message: string,
+        pushChanges: object[],
+        pushedPaths: string[],
+        baseCommitId: string,
+        state: SyncState | null
+    ): Promise<void> {
+        const attempt = (oldObjectId: string) =>
+            this.apiFetch(`${this.baseUrl}/pushes?api-version=${ADO_API_VERSION}`, {
+                method: "POST",
+                body: JSON.stringify({
+                    refUpdates: [{ name: `refs/heads/${this.plugin.settings.branch}`, oldObjectId }],
+                    commits: [{ comment: message, changes: pushChanges }],
+                }),
+            });
+
+        try {
+            await attempt(baseCommitId);
+        } catch (e) {
+            const err = e as Error & { status?: number };
+            const isConcurrency =
+                err.status === 409 ||
+                (err.status === 400 && /fast-forward|push (was )?rejected/i.test(err.message));
+            if (!isConcurrency) throw e;
+
+            // Remote moved. Bail if it touched any file we're about to write.
+            const freshTree = await this.getRemoteFileTree();
+            const freshIds = new Map(freshTree.map((f) => [f.path.replace(/^\//, ""), f.objectId]));
+            const base = state?.remoteObjectIds ?? {};
+            const overlap = pushedPaths.some((p) => freshIds.get(p) !== base[p]);
+            if (overlap) throw e;
+
+            const freshCommitId = await this.getLatestCommitId();
+            if (freshCommitId === baseCommitId) throw e;
+            await attempt(freshCommitId);
+        }
     }
 
     // ── Commit and sync ───────────────────────────────────────────────────────
