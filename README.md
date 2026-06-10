@@ -52,13 +52,15 @@ That's it. No packaging step, no installer to build, no config files to ship.
 
 ## Quick Install
 
-OnyxAz is not yet listed in the Obsidian Community Plugins directory. Install manually:
+OnyxAz is not yet in the Obsidian Community Plugins directory, so install it with the bundled script — no admin rights, no build:
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the latest [release](../../releases/latest)
-2. Create the folder `<your-vault>/.obsidian/plugins/onyxaz/`
-3. Copy the three files into that folder
-4. Open Obsidian → **Settings → Community plugins**
-5. Toggle **OnyxAz** on
+1. Download the latest release `.zip` from [Releases](../../releases/latest) and extract it anywhere.
+2. **Windows:** double-click **`install.cmd`**.
+   **macOS / Linux:** run `bash install.sh` in the extracted folder.
+3. Pick your vault from the list it shows (or paste the folder path). The script copies OnyxAz into `…/.obsidian/plugins/onyxaz/`.
+4. Open Obsidian → **Settings → Community plugins** → enable **OnyxAz**, then follow the setup screen.
+
+**Manual alternative:** copy `main.js`, `manifest.json`, and `styles.css` into `<your-vault>/.obsidian/plugins/onyxaz/` yourself, then enable the plugin.
 
 ---
 
