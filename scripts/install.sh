@@ -4,10 +4,30 @@
 #
 # Downloads the plugin from GitHub. If your network blocks GitHub, place
 # main.js / manifest.json / styles.css next to this script and it uses those.
+# If it finds your org's setup document (.docx/.txt/.json with the org URL and
+# client ID) in Downloads/Desktop/etc., it pre-fills the connection.
 set -e
 
 FILES=(main.js manifest.json styles.css)
 REPO_BASE="https://raw.githubusercontent.com/samdotson61/OnyxAz/master"
+
+ORG=""; CID=""
+extract_setup() {
+    local f="$1" text=""
+    case "$f" in
+        *.docx)
+            if command -v unzip >/dev/null 2>&1; then
+                text="$(unzip -p "$f" word/document.xml 2>/dev/null | sed -e 's/<[^>]*>/ /g')"
+            elif command -v python3 >/dev/null 2>&1; then
+                text="$(python3 -c "import zipfile,sys,re;print(re.sub(r'<[^>]+>',' ',zipfile.ZipFile(sys.argv[1]).read('word/document.xml').decode('utf8','ignore')))" "$f" 2>/dev/null)"
+            fi ;;
+        *) text="$(cat "$f" 2>/dev/null)" ;;
+    esac
+    [ -n "$text" ] || return 1
+    ORG="$(printf '%s' "$text" | grep -Eo 'https://(dev\.azure\.com/[^[:space:]"<]+|[A-Za-z0-9_-]+\.visualstudio\.com[^[:space:]"<]*)' | head -1 | sed 's/[.,;]*$//')"
+    CID="$(printf '%s' "$text" | grep -Eio '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)"
+    [ -n "$ORG" ] && [ -n "$CID" ]
+}
 
 # Prefer local files beside this script (or one level up); else download.
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -16,7 +36,7 @@ for c in "$DIR" "$(dirname "$DIR")"; do
     if [ -f "$c/main.js" ]; then SRC="$c"; break; fi
 done
 
-# Try to read vault paths from Obsidian's config (needs python3; optional).
+# Vault discovery from Obsidian's config (needs python3; optional).
 case "$(uname -s)" in
     Darwin) CFG="$HOME/Library/Application Support/obsidian/obsidian.json" ;;
     *)      CFG="$HOME/.config/obsidian/obsidian.json" ;;
@@ -35,12 +55,10 @@ if [ -f "$CFG" ] && command -v python3 >/dev/null 2>&1; then
         fi
     fi
 fi
-if [ -z "$VAULT" ]; then
-    read -rp "Enter the full path to your Obsidian vault folder: " VAULT
-fi
+[ -n "$VAULT" ] || read -rp "Enter the full path to your Obsidian vault folder: " VAULT
 
 VAULT="${VAULT/#\~/$HOME}"
-if [ ! -d "$VAULT" ]; then echo "Folder not found: $VAULT"; exit 1; fi
+[ -d "$VAULT" ] || { echo "Folder not found: $VAULT"; exit 1; }
 if [ ! -d "$VAULT/.obsidian" ]; then
     read -rp "That folder has no .obsidian subfolder. Continue anyway? (y/N) " ans
     [ "$ans" = "y" ] || exit 1
@@ -55,15 +73,37 @@ if [ -n "$SRC" ]; then
 else
     echo "Downloading OnyxAz from GitHub..."
     for f in "${FILES[@]}"; do
-        if ! curl -fsSL "$REPO_BASE/$f" -o "$DEST/$f"; then
-            echo "Could not download $f from GitHub."
-            echo "If your network blocks GitHub, ask IT for the OnyxAz files and put them next to this script."
+        curl -fsSL "$REPO_BASE/$f" -o "$DEST/$f" || {
+            echo "Could not download $f. If your network blocks GitHub, put the OnyxAz files next to this script."
             exit 1
-        fi
+        }
+    done
+fi
+
+# Look for a setup document and pre-fill the connection.
+AUTO=""
+if [ ! -f "$DEST/data.json" ]; then
+    shopt -s nullglob nocaseglob 2>/dev/null || true
+    for d in "$DIR" "$PWD" "$HOME/Downloads" "$HOME/Desktop" "$HOME"; do
+        [ -d "$d" ] || continue
+        for f in "$d"/*onyxaz*setup*.txt "$d"/*onyxaz*setup*.json "$d"/*onyxaz*guide*.docx; do
+            [ -f "$f" ] || continue
+            if extract_setup "$f"; then
+                printf '{\n  "organizationUrl": "%s",\n  "entraClientId": "%s",\n  "authMethod": "entra"\n}\n' "$ORG" "$CID" > "$DEST/data.json"
+                echo "Pre-filled your organization details from: $f"
+                AUTO=1
+                break
+            fi
+        done
+        [ -n "$AUTO" ] && break
     done
 fi
 
 echo
 echo "Done. OnyxAz installed to: $DEST"
-echo "Next: open Obsidian, enable OnyxAz in Settings -> Community plugins, choose SSO,"
-echo "paste your setup document, enter your email, and sign in."
+echo "Next: open Obsidian, enable OnyxAz in Settings -> Community plugins."
+if [ -n "$AUTO" ]; then
+    echo "Then choose SSO, enter your work email, and sign in (org details are pre-filled)."
+else
+    echo "Then choose SSO, paste your setup document, enter your email, and sign in."
+fi
