@@ -9,7 +9,7 @@ Application (client) ID:  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 How to connect
 --------------
-1. Install OnyxAz: double-click install.cmd (Windows) and pick your vault.
+1. Install OnyxAz: double-click "Install OnyxAz.cmd" (Windows) and pick your vault.
    Then enable OnyxAz in Obsidian -> Settings -> Community plugins.
 2. On the OnyxAz setup screen, choose "SSO for Teams".
 3. Click "Paste setup document to autofill" and paste this whole message.

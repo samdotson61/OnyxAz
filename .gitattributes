@@ -4,3 +4,6 @@ main.js text eol=lf
 
 # Shell installer must stay LF to run on macOS/Linux.
 *.sh text eol=lf
+
+# Windows batch installer must be CRLF to run reliably in cmd.exe.
+*.cmd text eol=crlf

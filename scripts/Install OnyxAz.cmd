@@ -1,17 +1,22 @@
-# OnyxAz quick installer (Windows) — copies the plugin into your Obsidian vault.
-# No administrator rights required. Launched by install.cmd (double-click).
-#
-# Hand a user just this script (via install.cmd) and a setup document — it
-# downloads the plugin from GitHub itself. If your network blocks GitHub, place
-# main.js / manifest.json / styles.css next to install.cmd and it uses those.
-#
-# If it finds your org's setup document (a .docx/.txt/.json with the org URL and
-# client ID) in Downloads/Desktop/etc., it pre-fills the connection so you only
-# need to enter your email on the sign-in screen.
-
+@echo off
+REM ===========================================================================
+REM  OnyxAz installer for Windows.  Double-click this file to run.
+REM  No administrator rights required. This single file contains everything;
+REM  it downloads the plugin from GitHub (or uses local files beside it) and
+REM  copies it into your Obsidian vault.
+REM ===========================================================================
+setlocal
+set "ONYXAZ_DIR=%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$m='#PS'+'CODE#'; $c=Get-Content -Raw -LiteralPath '%~f0'; Invoke-Expression ($c.Substring($c.IndexOf($m)+$m.Length))"
+exit /b %errorlevel%
+rem #PSCODE#
+# ---- PowerShell below (run via the batch header above) --------------------
 $ErrorActionPreference = "Stop"
 $files = @("main.js", "manifest.json", "styles.css")
 $RepoBase = "https://raw.githubusercontent.com/samdotson61/OnyxAz/master"
+
+# Folder this installer lives in (passed in by the batch header).
+$ScriptDir = if ($env:ONYXAZ_DIR) { $env:ONYXAZ_DIR.TrimEnd('\') } else { (Get-Location).Path }
 
 function Pause-Exit($code) {
     Read-Host "`nPress Enter to close"
@@ -48,8 +53,8 @@ Write-Host "=== OnyxAz installer ===`n"
 
 # Prefer local plugin files (offline / IT-bundled); else download from GitHub.
 $src = $null
-foreach ($c in @($PSScriptRoot, (Split-Path $PSScriptRoot -Parent))) {
-    if (Test-Path (Join-Path $c "main.js")) { $src = $c; break }
+foreach ($c in @($ScriptDir, (Split-Path $ScriptDir -Parent))) {
+    if ($c -and (Test-Path (Join-Path $c "main.js"))) { $src = $c; break }
 }
 
 # Discover vaults from Obsidian's own config.
@@ -123,14 +128,14 @@ $autoFilled = $false
 $dataPath = Join-Path $dest "data.json"
 if (-not (Test-Path $dataPath)) {
     $searchDirs = @(
-        $PSScriptRoot, (Get-Location).Path,
+        $ScriptDir, (Get-Location).Path,
         (Join-Path $env:USERPROFILE "Downloads"), (Join-Path $env:USERPROFILE "Desktop"), $env:USERPROFILE
     )
     if ($env:OneDrive) { $searchDirs += (Join-Path $env:OneDrive "Downloads"); $searchDirs += (Join-Path $env:OneDrive "Desktop") }
     $patterns = @("*OnyxAz*Setup*.txt", "*OnyxAz*Setup*.json", "*OnyxAz*Guide*.docx", "*onyxaz*setup*.json")
 
     foreach ($d in ($searchDirs | Select-Object -Unique)) {
-        if (-not (Test-Path $d)) { continue }
+        if (-not $d -or -not (Test-Path $d)) { continue }
         foreach ($p in $patterns) {
             $hit = Get-ChildItem -LiteralPath $d -Filter $p -File -ErrorAction SilentlyContinue |
                 Sort-Object LastWriteTime -Descending | Select-Object -First 1

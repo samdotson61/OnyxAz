@@ -48,7 +48,7 @@ Application (client) ID:  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 On the sign-in screen, users click **📋 Paste setup document to autofill** and paste this text — OnyxAz scrapes both values out automatically (plain text or JSON both work). Or they type the client ID by hand. Either way, the only thing they personally provide is their work email.
 
-See **[`SETUP-EXAMPLE.txt`](SETUP-EXAMPLE.txt)** for a ready-to-edit template — fill in your org URL and client ID and send it to your team alongside `install.cmd`.
+See **[`SETUP-EXAMPLE.txt`](SETUP-EXAMPLE.txt)** for a ready-to-edit template — fill in your org URL and client ID and send it to your team alongside `Install OnyxAz.cmd`.
 
 That's it. No packaging step, no installer to build, no config files to ship.
 
@@ -58,8 +58,8 @@ That's it. No packaging step, no installer to build, no config files to ship.
 
 No release zip, no build — you only need the installer and (for SSO) a setup document.
 
-1. Get **[`install.cmd`](scripts/install.cmd)** (Windows) — or `scripts/install.sh` for macOS/Linux. Your IT team can hand it to you directly along with your setup document.
-2. **Windows:** double-click **`install.cmd`**.  **macOS / Linux:** run `bash install.sh`.
+1. Get **[`Install OnyxAz.cmd`](scripts/Install%20OnyxAz.cmd)** (Windows) — or `scripts/install.sh` for macOS/Linux. Your IT team can hand it to you directly along with your setup document. It's one self-contained file — no separate scripts, no admin rights.
+2. **Windows:** **double-click `Install OnyxAz.cmd`**.  **macOS / Linux:** run `bash install.sh`.
 3. Pick your vault from the list it shows, or choose **[N] Create a NEW vault** to point at a fresh folder (it'll be created for you — then open it in Obsidian via *Open folder as vault*). The installer **downloads OnyxAz from GitHub** and copies it into `…/.obsidian/plugins/onyxaz/` — no admin rights needed.
 4. Open Obsidian → **Settings → Community plugins** → enable **OnyxAz**, then follow the setup screen.
 
