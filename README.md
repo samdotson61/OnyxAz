@@ -229,7 +229,13 @@ Enable **Settings → OnyxAz → Auto-update from GitHub** to have OnyxAz check 
 
 ## If a sync gets stuck
 
-Network requests now time out after 60 seconds, so a stalled connection no longer blocks the queue (this is what previously made clicking several projects feel hung). If something does wedge, run **`OnyxAz: Recover`** (or the **Recover** button in the Hub) to clear any queued/stuck operations and reset — then try again.
+OnyxAz tries hard to keep syncs healthy on its own:
+
+- Files download **in parallel** (up to 8 at once), so large pulls finish much faster, with a live count/bar.
+- Each request **times out after 60 s**, so a stalled connection can't block the queue.
+- Pulls **auto-retry** up to 2 times on a transient error before giving up.
+
+If something still wedges, run **`OnyxAz: Recover`** (or the **Recover** button in the Hub) to clear any queued/stuck operations and reset — then try again.
 
 ---
 

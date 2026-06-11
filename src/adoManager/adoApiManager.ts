@@ -6,6 +6,7 @@ import type OnyxAz from "../main";
 import { gitBlobSha1 } from "../util/hash";
 import { matchesIgnore, parseIgnoreFile } from "../util/ignore";
 import { buildSyncRoot } from "../util/syncRoot";
+import { mapLimit } from "../util/concurrency";
 
 export class AdoApiManager extends AdoManager {
     // Active ignore patterns (DEFAULT_IGNORED + any from .onyxazignore), refreshed
@@ -347,16 +348,16 @@ export class AdoApiManager extends AdoManager {
             }
         }
 
-        // Second pass: download, reporting progress after each file.
+        // Second pass: download in parallel (bounded), reporting after each file.
         let filesChanged = 0;
         const total = toDownload.length;
         if (onProgress) onProgress(0, total);
-        for (const filePath of toDownload) {
+        await mapLimit(toDownload, 8, async (filePath) => {
             const buffer = await this.getFileContent(filePath.startsWith("/") ? filePath : `/${filePath}`);
             await this.writeLocalFile(filePath, buffer);
             filesChanged++;
             if (onProgress) onProgress(filesChanged, total);
-        }
+        });
 
         if (state) {
             for (const path of Object.keys(state.remoteObjectIds)) {
@@ -679,7 +680,7 @@ export class AdoApiManager extends AdoManager {
         }
 
         let n = 0;
-        for (const rel of toDownload) {
+        await mapLimit(toDownload, 8, async (rel) => {
             const resp = await this.apiFetch(
                 `${base}/items?path=${encodeURIComponent("/" + rel)}` +
                 `&versionDescriptor.version=${encodeURIComponent(t.branch)}` +
@@ -689,7 +690,7 @@ export class AdoApiManager extends AdoManager {
             await this.writeBinaryInto(normalizePath(folder + rel), resp.arrayBuffer);
             n++;
             if (onFile) onFile();
-        }
+        });
 
         // Remove files deleted upstream since last sync.
         if (state) {

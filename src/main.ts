@@ -86,7 +86,7 @@ export default class OnyxAz extends Plugin {
                             const { folders } = await this.app.vault.adapter.list(folder);
                             if (folders.length > 0) {
                                 this.hydratedProjects.add(project);
-                                this.promiseQueue.addTask(() => this.adoManager.hydrateProject(project));
+                                this.queueProjectPull(project);
                             }
                         } catch { /* skip */ }
                     }
@@ -291,25 +291,50 @@ export default class OnyxAz extends Plugin {
         // its turn comes). A stalled request now times out (see apiFetch) instead
         // of blocking the queue forever.
         new Notice(`OnyxAz: Queued "${project}".`, 2500);
+        this.queueProjectPull(project);
+    }
 
+    // Queues an incremental pull of an entire project, with live progress and
+    // auto-retry (so a transient/stalled sync recovers itself).
+    queueProjectPull(project: string): void {
         this.promiseQueue.addTask(async () => {
             const progress = new Notice(`OnyxAz: Pulling "${project}"…`, 0);
             this.setState(CurrentAdoAction.pull);
             try {
-                const { repos, files } = await this.adoManager.hydrateProject(project, (count, repo) => {
-                    progress.setMessage(`OnyxAz: Pulling "${project}"\n${repo} — ${count} file(s)…`);
-                });
+                const { repos, files } = await this.retry(() =>
+                    this.adoManager.hydrateProject(project, (count, repo) => {
+                        progress.setMessage(`OnyxAz: Pulling "${project}"\n${repo} — ${count} file(s)…`);
+                    })
+                );
                 progress.hide();
-                new Notice(`OnyxAz: Pulled ${files} file(s) from ${repos} repo(s) in "${project}".`, 6000);
+                if (files > 0) new Notice(`OnyxAz: Pulled ${files} file(s) from ${repos} repo(s) in "${project}".`, 6000);
                 this.app.workspace.trigger("onyxaz:refresh");
             } catch (e) {
                 progress.hide();
-                this.hydratedProjects.delete(project); // allow retry on failure
+                this.hydratedProjects.delete(project); // allow retry on next click
                 this.displayError(e);
             } finally {
                 this.setState(CurrentAdoAction.idle);
             }
         });
+    }
+
+    // Retries a flaky async operation a few times with a short delay — the
+    // auto-recovery for transient network errors / stalled (timed-out) requests.
+    private async retry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 1500): Promise<T> {
+        let lastErr: unknown;
+        for (let i = 0; i < attempts; i++) {
+            try {
+                return await fn();
+            } catch (e) {
+                lastErr = e;
+                if (i < attempts - 1) {
+                    new Notice(`OnyxAz: Sync hiccup — retrying (${i + 1}/${attempts - 1})…`, 3000);
+                    await new Promise((r) => setTimeout(r, delayMs));
+                }
+            }
+        }
+        throw lastErr;
     }
 
     // Derives the mirrored repo target from the currently open file, or null if
@@ -336,10 +361,10 @@ export default class OnyxAz extends Plugin {
             this.setState(CurrentAdoAction.pull);
             let done = 0;
             try {
-                const n = await this.adoManager.pullTarget(t, () => {
+                const n = await this.retry(() => this.adoManager.pullTarget(t, () => {
                     done++;
                     progress.setMessage(`OnyxAz: Pulling ${t.repo}\n${done} file(s)…`);
-                });
+                }));
                 progress.hide();
                 new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s) into ${t.repo}.` : `OnyxAz: ${t.repo} is up to date.`);
                 this.app.workspace.trigger("onyxaz:refresh");
