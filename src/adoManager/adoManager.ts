@@ -38,6 +38,7 @@ export abstract class AdoManager {
         const s = this.plugin.settings;
         return buildSyncRoot({
             localSyncPath: s.localSyncPath,
+            organizationUrl: s.organizationUrl,
             project: s.project,
             repository: s.repository,
             branch: s.branch,

@@ -100,11 +100,11 @@ If device code sign-in is blocked by your network, go to **Settings → OnyxAz �
 
 ## Vault folder layout
 
-By default, OnyxAz places synced files under `ADO/<project>/<repo>/<branch>/`, so different repos **and different branches** never share a folder and the branch is visible right in the file tree:
+By default, OnyxAz places synced files under `<org>_ADO/<project>/<repo>/<branch>/`, where `<org>` comes from your organization URL (e.g. `dev.azure.com/myorg` → `myorg_ADO`). This namespaces by organization and keeps different repos **and different branches** in separate folders, with the branch visible right in the file tree:
 
 ```
 My Vault/
-├── ADO/
+├── myorg_ADO/
 │   └── My Project/
 │       └── My Repo/
 │           ├── main/          ← the "main" branch
@@ -117,7 +117,7 @@ My Vault/
 
 To override the layout, go to **Settings → OnyxAz → Azure DevOps → Local sync folder** and enter a custom path (or leave blank to use the default).
 
-> **Upgrading from an older layout?** OnyxAz detects the changed folder path automatically, clears its sync state, and prompts you to **Force re-pull** — which downloads everything into the new `…/<repo>/<branch>/` folders. Your old `ADO/<project>/` folder is left untouched; delete it once you've confirmed the new sync.
+> **Upgrading from an older layout?** OnyxAz detects the changed folder path automatically, clears its sync state, and prompts you to **Force re-pull** — which downloads everything into the new `<org>_ADO/<project>/<repo>/<branch>/` folders. Your old `ADO/...` folder is left untouched; delete it once you've confirmed the new sync.
 
 ---
 

@@ -1,10 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { buildSyncRoot } from "./syncRoot";
+import { buildSyncRoot, orgSlug } from "./syncRoot";
 
 describe("buildSyncRoot", () => {
-    it("defaults to ADO/<project>/<repo>/<branch>/", () => {
+    it("falls back to ADO/<project>/<repo>/<branch>/ with no org URL", () => {
         expect(buildSyncRoot({ project: "Proj", repository: "Repo", branch: "main" }))
             .toBe("ADO/Proj/Repo/main/");
+    });
+
+    it("prefixes with <org>_ADO when an org URL is given", () => {
+        expect(buildSyncRoot({
+            organizationUrl: "https://dev.azure.com/myorg",
+            project: "Proj", repository: "Repo", branch: "main",
+        })).toBe("myorg_ADO/Proj/Repo/main/");
+    });
+
+    it("derives the org from a visualstudio.com URL", () => {
+        expect(buildSyncRoot({
+            organizationUrl: "https://contoso.visualstudio.com",
+            project: "P", repository: "R", branch: "dev",
+        })).toBe("contoso_ADO/P/R/dev/");
     });
 
     it("separates two branches of the same repo", () => {
@@ -38,5 +52,18 @@ describe("buildSyncRoot", () => {
     it("strips characters illegal in file paths", () => {
         expect(buildSyncRoot({ project: "My:Proj", repository: 'R"epo', branch: "main" }))
             .toBe("ADO/My-Proj/R-epo/main/");
+    });
+});
+
+describe("orgSlug", () => {
+    it("reads dev.azure.com/<org>", () => {
+        expect(orgSlug("https://dev.azure.com/myorg")).toBe("myorg");
+    });
+    it("reads <org>.visualstudio.com", () => {
+        expect(orgSlug("https://contoso.visualstudio.com/")).toBe("contoso");
+    });
+    it("returns '' for empty/invalid input", () => {
+        expect(orgSlug("")).toBe("");
+        expect(orgSlug("not a url")).toBe("");
     });
 });
