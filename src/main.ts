@@ -237,20 +237,35 @@ export default class OnyxAz extends Plugin {
         const project = this.orgProjectFolders.get(folderPath);
         if (!project || this.hydratedProjects.has(project)) return;
         this.hydratedProjects.add(project);
-        new Notice(`OnyxAz: Pulling "${project}"…`, 4000);
+        const progress = new Notice(`OnyxAz: Pulling "${project}"…`, 0);
         this.promiseQueue.addTask(async () => {
             this.setState(CurrentAdoAction.pull);
             try {
-                const { repos, files } = await this.adoManager.hydrateProject(project);
+                const { repos, files } = await this.adoManager.hydrateProject(project, (count, repo) => {
+                    progress.setMessage(`OnyxAz: Pulling "${project}"\n${repo} — ${count} file(s)…`);
+                });
+                progress.hide();
                 new Notice(`OnyxAz: Pulled ${files} file(s) from ${repos} repo(s) in "${project}".`, 6000);
                 this.app.workspace.trigger("onyxaz:refresh");
             } catch (e) {
+                progress.hide();
                 this.hydratedProjects.delete(project); // allow retry on failure
                 this.displayError(e);
             } finally {
                 this.setState(CurrentAdoAction.idle);
             }
         });
+    }
+
+    // Renders a text progress bar for a live-updating Notice, e.g.
+    //   OnyxAz: Pulling files
+    //   ████████░░░░░░░░  12/30 (40%)
+    private progressBarText(label: string, done: number, total: number): string {
+        const width = 18;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        const filled = total > 0 ? Math.min(width, Math.round((done / total) * width)) : 0;
+        const bar = "█".repeat(filled) + "░".repeat(width - filled);
+        return `OnyxAz: ${label}\n${bar}  ${done}/${total} (${pct}%)`;
     }
 
     private makeConflictResolver(): (conflicts: string[]) => Promise<Set<string>> {
@@ -283,13 +298,18 @@ export default class OnyxAz extends Plugin {
 
         // 2. Pull first
         this.setState(CurrentAdoAction.pull);
+        const progress = new Notice("OnyxAz: Pulling…", 0);
         try {
-            const n = await this.adoManager.pull(this.makeConflictResolver());
+            const n = await this.adoManager.pull(this.makeConflictResolver(), (done, total) => {
+                progress.setMessage(total > 0 ? this.progressBarText("Pulling files", done, total) : "OnyxAz: Pulling…");
+            });
+            progress.hide();
             this.cachedStatus = null;
             new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s).` : "OnyxAz: Already up to date.");
             this.app.workspace.trigger("onyxaz:refresh");
             this.updateCachedStatus().catch(() => {});
         } catch (e) {
+            progress.hide();
             this.displayError(e);
             this.setState(CurrentAdoAction.idle);
             return;
@@ -323,13 +343,18 @@ export default class OnyxAz extends Plugin {
             return;
         }
         this.setState(CurrentAdoAction.pull);
+        const progress = new Notice("OnyxAz: Re-downloading…", 0);
         try {
-            const n = await this.adoManager.forcePull();
+            const n = await this.adoManager.forcePull((done, total) => {
+                progress.setMessage(total > 0 ? this.progressBarText("Re-downloading files", done, total) : "OnyxAz: Re-downloading…");
+            });
+            progress.hide();
             this.cachedStatus = null;
             new Notice(`OnyxAz: Force-pulled ${n} file(s) from remote.`);
             this.app.workspace.trigger("onyxaz:refresh");
             this.updateCachedStatus().catch(() => {});
         } catch (e) {
+            progress.hide();
             this.displayError(e);
         } finally {
             this.setState(CurrentAdoAction.idle);
@@ -342,13 +367,18 @@ export default class OnyxAz extends Plugin {
             return;
         }
         this.setState(CurrentAdoAction.pull);
+        const progress = new Notice("OnyxAz: Pulling…", 0);
         try {
-            const n = await this.adoManager.pull(this.makeConflictResolver());
+            const n = await this.adoManager.pull(this.makeConflictResolver(), (done, total) => {
+                progress.setMessage(total > 0 ? this.progressBarText("Pulling files", done, total) : "OnyxAz: Pulling…");
+            });
+            progress.hide();
             this.cachedStatus = null;
             new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s).` : "OnyxAz: Already up to date.");
             this.app.workspace.trigger("onyxaz:refresh");
             this.updateCachedStatus().catch(() => {});
         } catch (e) {
+            progress.hide();
             this.displayError(e);
         } finally {
             this.setState(CurrentAdoAction.idle);

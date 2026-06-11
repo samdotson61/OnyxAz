@@ -11,8 +11,11 @@ export abstract class AdoManager {
 
     abstract testConnection(): Promise<void>;
     abstract getStatus(): Promise<SyncStatus>;
-    abstract pull(resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>): Promise<number>;
-    abstract forcePull(): Promise<number>;
+    abstract pull(
+        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>,
+        onProgress?: (done: number, total: number) => void
+    ): Promise<number>;
+    abstract forcePull(onProgress?: (done: number, total: number) => void): Promise<number>;
     abstract push(message: string, changes?: import("../types").FileStatus[]): Promise<void>;
     abstract commitAndSync(message: string): Promise<void>;
     abstract getLog(count: number): Promise<LogEntry[]>;
@@ -29,7 +32,10 @@ export abstract class AdoManager {
     // folder path -> project name for click-to-hydrate.
     abstract scaffoldOrg(): Promise<Map<string, string>>;
     // Pull every repo (default branch) of a project into its folder. Pull-only.
-    abstract hydrateProject(project: string): Promise<{ repos: number; files: number }>;
+    abstract hydrateProject(
+        project: string,
+        onProgress?: (files: number, repo: string) => void
+    ): Promise<{ repos: number; files: number }>;
 
     getCachedState(): SyncState | null {
         return this.cachedState;

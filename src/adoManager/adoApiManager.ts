@@ -304,7 +304,8 @@ export class AdoApiManager extends AdoManager {
     // resolveConflicts: called when remote changed AND local file already exists.
     // Returns the set of paths the user wants to KEEP locally (skip remote version).
     async pull(
-        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>
+        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>,
+        onProgress?: (done: number, total: number) => void
     ): Promise<number> {
         await this.loadIgnorePatterns();
         const [remoteTree, latestCommitId, state] = await Promise.all([
@@ -330,9 +331,9 @@ export class AdoApiManager extends AdoManager {
             ? await resolveConflicts(conflicts)
             : new Set<string>();
 
-        let filesChanged = 0;
+        // First pass: record remote object IDs and decide which files to download.
         const newRemoteObjectIds: Record<string, string> = {};
-
+        const toDownload: string[] = [];
         for (const remoteFile of remoteTree) {
             const filePath = remoteFile.path.replace(/^\//, "");
             if (this.shouldIgnore(filePath)) continue;
@@ -341,12 +342,20 @@ export class AdoApiManager extends AdoManager {
             const storedObjectId = state?.remoteObjectIds[filePath];
             const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(this.syncRoot + filePath));
 
-            if (!state || storedObjectId !== remoteFile.objectId || !localExists) {
-                if (skipPaths.has(filePath)) continue;
-                const buffer = await this.getFileContent(filePath.startsWith("/") ? filePath : `/${filePath}`);
-                await this.writeLocalFile(filePath, buffer);
-                filesChanged++;
+            if ((!state || storedObjectId !== remoteFile.objectId || !localExists) && !skipPaths.has(filePath)) {
+                toDownload.push(filePath);
             }
+        }
+
+        // Second pass: download, reporting progress after each file.
+        let filesChanged = 0;
+        const total = toDownload.length;
+        if (onProgress) onProgress(0, total);
+        for (const filePath of toDownload) {
+            const buffer = await this.getFileContent(filePath.startsWith("/") ? filePath : `/${filePath}`);
+            await this.writeLocalFile(filePath, buffer);
+            filesChanged++;
+            if (onProgress) onProgress(filesChanged, total);
         }
 
         if (state) {
@@ -557,7 +566,10 @@ export class AdoApiManager extends AdoManager {
 
     // Pulls every repo (default branch) of a project into
     // <org>_ADO/<project>/<repo>/<branch>/. Pull-only; mirrors remote content.
-    async hydrateProject(project: string): Promise<{ repos: number; files: number }> {
+    async hydrateProject(
+        project: string,
+        onProgress?: (files: number, repo: string) => void
+    ): Promise<{ repos: number; files: number }> {
         await this.loadIgnorePatterns();
         const repos = await this.listRepositoriesDetailed(project);
         let files = 0;
@@ -568,7 +580,10 @@ export class AdoApiManager extends AdoManager {
                 repository: r.name,
                 branch: r.branch,
             }));
-            files += await this.mirrorRepoBranch(project, r.name, r.branch, dest);
+            await this.mirrorRepoBranch(project, r.name, r.branch, dest, () => {
+                files++;
+                if (onProgress) onProgress(files, r.name);
+            });
         }
         return { repos: repos.length, files };
     }
@@ -578,7 +593,7 @@ export class AdoApiManager extends AdoManager {
         return `${org}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}`;
     }
 
-    private async mirrorRepoBranch(project: string, repo: string, branch: string, destRoot: string): Promise<number> {
+    private async mirrorRepoBranch(project: string, repo: string, branch: string, destRoot: string, onFile?: () => void): Promise<number> {
         const base = this.targetRepoUrl(project, repo);
         let tree: AdoFile[] = [];
         try {
@@ -604,6 +619,7 @@ export class AdoApiManager extends AdoManager {
             );
             await this.writeBinaryInto(normalizePath(destRoot + rel), resp.arrayBuffer);
             n++;
+            if (onFile) onFile();
         }
         return n;
     }
@@ -626,14 +642,14 @@ export class AdoApiManager extends AdoManager {
     }
 
     // Force-pull: wipes local state so every remote file is re-downloaded
-    async forcePull(): Promise<number> {
+    async forcePull(onProgress?: (done: number, total: number) => void): Promise<number> {
         this.cachedState = null;
         const adapter = this.plugin.app.vault.adapter;
         const path = normalizePath(STATE_FILE_PATH);
         if (await adapter.exists(path)) {
             await adapter.remove(path).catch(() => {});
         }
-        return this.pull();
+        return this.pull(undefined, onProgress);
     }
 
     // ── History ───────────────────────────────────────────────────────────────
