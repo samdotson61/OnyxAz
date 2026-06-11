@@ -88,13 +88,16 @@ export abstract class AdoManager {
             "Content-Type": "application/json",
             ...(options.headers ?? {}),
         };
-        const resp = await requestUrl({
-            url,
-            method: options.method ?? "GET",
-            headers,
-            body: options.body,
-            throw: false,
-        });
+        // Race the request against a timeout so a stalled connection fails fast
+        // (rather than hanging the whole sync queue — e.g. when pulling several
+        // projects). requestUrl can't be cancelled, but the timeout lets us move on.
+        const TIMEOUT_MS = 60000;
+        const resp = await Promise.race([
+            requestUrl({ url, method: options.method ?? "GET", headers, body: options.body, throw: false }),
+            new Promise<RequestUrlResponse>((_, reject) =>
+                setTimeout(() => reject(new Error(`Request timed out after ${TIMEOUT_MS / 1000}s. The network may have stalled — try again, or use "OnyxAz: Recover".`)), TIMEOUT_MS)
+            ),
+        ]);
         if (resp.status >= 400) {
             // Extract the human-readable message from ADO's JSON envelope
             // (shape: { message: "TF401179: ...", typeKey: "...", ... })

@@ -1,5 +1,6 @@
-import { Notice, Plugin, addIcon } from "obsidian";
-import { DEFAULT_SETTINGS } from "./constants";
+import { Notice, Plugin, addIcon, normalizePath, requestUrl } from "obsidian";
+import { DEFAULT_SETTINGS, ONYXAZ_REPO_RAW } from "./constants";
+import { compareVersions } from "./util/version";
 import type { FileStatus, OnyxAzSettings, SyncStatus } from "./types";
 import { CurrentAdoAction } from "./types";
 import { AdoApiManager } from "./adoManager/adoApiManager";
@@ -77,6 +78,10 @@ export default class OnyxAz extends Plugin {
             // Rebuild the project-folder map so click-to-pull works after restart.
             if (this.settings.orgMirror && this.isConfigured()) {
                 this.adoManager.scaffoldOrg().then((m) => { this.orgProjectFolders = m; }).catch(() => {});
+            }
+            // Quietly check GitHub for a newer plugin build, if enabled.
+            if (this.settings.autoUpdate) {
+                this.checkForUpdate(false).catch(() => {});
             }
             this.automaticsManager.init();
             await this.updateCachedStatus();
@@ -167,6 +172,24 @@ export default class OnyxAz extends Plugin {
         });
 
         this.addCommand({
+            id: "recover",
+            name: "Recover (reset a stuck or hung sync)",
+            callback: () => this.recover(),
+        });
+
+        this.addCommand({
+            id: "check-for-updates",
+            name: "Check for updates",
+            callback: () => this.checkForUpdate(true),
+        });
+
+        this.addCommand({
+            id: "reload",
+            name: "Reload plugin (apply a downloaded update)",
+            callback: () => this.reloadSelf(),
+        });
+
+        this.addCommand({
             id: "toggle-automatics",
             name: "Toggle automatic sync",
             callback: () => {
@@ -237,8 +260,15 @@ export default class OnyxAz extends Plugin {
         const project = this.orgProjectFolders.get(folderPath);
         if (!project || this.hydratedProjects.has(project)) return;
         this.hydratedProjects.add(project);
-        const progress = new Notice(`OnyxAz: Pulling "${project}"…`, 0);
+
+        // Brief feedback so clicking several projects doesn't feel hung — each is
+        // queued and pulled in turn (the persistent progress notice appears when
+        // its turn comes). A stalled request now times out (see apiFetch) instead
+        // of blocking the queue forever.
+        new Notice(`OnyxAz: Queued "${project}".`, 2500);
+
         this.promiseQueue.addTask(async () => {
+            const progress = new Notice(`OnyxAz: Pulling "${project}"…`, 0);
             this.setState(CurrentAdoAction.pull);
             try {
                 const { repos, files } = await this.adoManager.hydrateProject(project, (count, repo) => {
@@ -255,6 +285,66 @@ export default class OnyxAz extends Plugin {
                 this.setState(CurrentAdoAction.idle);
             }
         });
+    }
+
+    // ── Recovery & self-update ─────────────────────────────────────────────────
+
+    // Clears any stuck/queued operations and resets state — the escape hatch if a
+    // sync hangs or a project pull gets wedged.
+    recover(): void {
+        this.promiseQueue.clear();
+        this.hydratedProjects.clear();
+        this.setState(CurrentAdoAction.idle);
+        this.cachedStatus = null;
+        this.updateCachedStatus().catch(() => {});
+        new Notice("OnyxAz: Reset. Cleared any stuck/queued sync — you can try again.", 5000);
+    }
+
+    // Checks GitHub for a newer plugin build and, if found, downloads it into the
+    // plugin folder. `manual` controls whether "up to date" / errors are surfaced.
+    async checkForUpdate(manual = false): Promise<void> {
+        const dir = this.manifest.dir;
+        if (!dir) { if (manual) new Notice("OnyxAz: Can't locate the plugin folder to update."); return; }
+        try {
+            const resp = await requestUrl({ url: `${ONYXAZ_REPO_RAW}/manifest.json`, throw: false });
+            const remote = resp.status === 200 ? (resp.json?.version as string) : "";
+            if (!remote) { if (manual) new Notice("OnyxAz: Couldn't reach GitHub to check for updates."); return; }
+
+            if (compareVersions(remote, this.manifest.version) <= 0) {
+                if (manual) new Notice(`OnyxAz: You're up to date (v${this.manifest.version}).`);
+                return;
+            }
+
+            new Notice(`OnyxAz: Downloading update v${this.manifest.version} → v${remote}…`, 5000);
+            for (const f of ["main.js", "manifest.json", "styles.css"]) {
+                const r = await requestUrl({ url: `${ONYXAZ_REPO_RAW}/${f}`, throw: false });
+                if (r.status === 200) {
+                    await this.app.vault.adapter.write(normalizePath(`${dir}/${f}`), r.text);
+                }
+            }
+            new Notice(
+                `OnyxAz: Updated to v${remote}. Run "OnyxAz: Reload plugin" (or restart Obsidian) to apply.`,
+                12000
+            );
+        } catch (e) {
+            if (manual) this.displayError(e);
+        }
+    }
+
+    // Disable + re-enable this plugin so a downloaded update takes effect without
+    // an Obsidian restart. Uses Obsidian's plugin manager (not in the public types).
+    reloadSelf(): void {
+        const id = this.manifest.id;
+        const plugins = (this.app as unknown as { plugins: { disablePlugin(id: string): Promise<void>; enablePlugin(id: string): Promise<void> } }).plugins;
+        new Notice("OnyxAz: Reloading…", 3000);
+        setTimeout(async () => {
+            try {
+                await plugins.disablePlugin(id);
+                await plugins.enablePlugin(id);
+            } catch (e) {
+                this.displayError(e);
+            }
+        }, 150);
     }
 
     // Renders a text progress bar for a live-updating Notice, e.g.

@@ -106,6 +106,11 @@ export class HubModal extends Modal {
                 this.plugin.mirrorOrganization();
             });
 
+            this.btn(actions, "Recover (reset stuck sync)", "", () => {
+                this.close();
+                this.plugin.recover();
+            });
+
             // Open in ADO (link styled as button)
             const adoUrl =
                 `${s.organizationUrl.replace(/\/$/, "")}` +

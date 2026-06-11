@@ -189,8 +189,12 @@ All commands are available from the command palette (`Ctrl/Cmd + P`):
 | `OnyxAz: Pull` | Download remote changes |
 | `OnyxAz: Push` | Upload local changes (with confirmation) |
 | `OnyxAz: Force re-pull` | Wipe state and re-download all remote files |
+| `OnyxAz: Mirror organization` | Scaffold a folder per project (pull-only) |
 | `OnyxAz: List changed files` | Show what would be pushed |
 | `OnyxAz: Toggle automatic sync` | Pause / resume scheduled pulls |
+| `OnyxAz: Recover` | Reset a stuck or hung sync |
+| `OnyxAz: Check for updates` | Update the plugin from GitHub now |
+| `OnyxAz: Reload plugin` | Disable + re-enable to apply a downloaded update |
 | `OnyxAz: Open repository in Azure DevOps` | Open the repo in your browser |
 
 ---
@@ -203,6 +207,18 @@ Configure in **Settings → OnyxAz → Automation**:
 - **Second auto pull interval** — a second independent pull schedule.
 - **Auto sync on save** — pull after you stop editing a file (debounced).
 - **Pull on startup** — pull when Obsidian opens.
+
+---
+
+## Updating the plugin
+
+Enable **Settings → OnyxAz → Auto-update from GitHub** to have OnyxAz check for a newer build on startup and download it automatically (you'll be prompted to reload). Or click **Check now** there, or run **`OnyxAz: Check for updates`** any time. After an update downloads, run **`OnyxAz: Reload plugin`** (or restart Obsidian) to apply it.
+
+---
+
+## If a sync gets stuck
+
+Network requests now time out after 60 seconds, so a stalled connection no longer blocks the queue (this is what previously made clicking several projects feel hung). If something does wedge, run **`OnyxAz: Recover`** (or the **Recover** button in the Hub) to clear any queued/stuck operations and reset — then try again.
 
 ---
 

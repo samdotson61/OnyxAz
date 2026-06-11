@@ -360,6 +360,22 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
+            .setName("Auto-update from GitHub")
+            .setDesc(
+                "On startup, check GitHub for a newer OnyxAz build and download it automatically. " +
+                "You'll be prompted to reload to apply. Use 'Check for updates' below to check now."
+            )
+            .addToggle((t) =>
+                t.setValue(this.plugin.settings.autoUpdate).onChange(async (v) => {
+                    this.plugin.settings.autoUpdate = v;
+                    await this.plugin.saveSettings();
+                })
+            )
+            .addButton((b) =>
+                b.setButtonText("Check now").onClick(() => this.plugin.checkForUpdate(true))
+            );
+
+        new Setting(containerEl)
             .setName("Show status bar")
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.showStatusBar).onChange(async (v) => {

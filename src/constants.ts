@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: OnyxAzSettings = {
     branch: "main",
     localSyncPath: "",
     orgMirror: false,
+    autoUpdate: false,
     authMethod: "entra",           // Microsoft SSO is the default
     pat: "",
     entraClientId: "",
@@ -33,6 +34,9 @@ export const DEFAULT_SETTINGS: OnyxAzSettings = {
     notifyOnSuccess: true,
     maxAttachmentSizeMB: 5,
 };
+
+// Raw GitHub base for self-update (must match where releases are published).
+export const ONYXAZ_REPO_RAW = "https://raw.githubusercontent.com/samdotson61/OnyxAz/master";
 
 export const STATE_FILE_PATH = ".onyxaz/state.json";
 export const IGNORE_FILE_PATH = ".onyxazignore";

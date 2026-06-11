@@ -10,6 +10,7 @@ export interface OnyxAzSettings {
     branch: string;
     localSyncPath: string;  // subfolder in vault where this repo's files live (blank = vault root)
     orgMirror: boolean;     // scaffold all org projects as folders; pull each on click (pull-only)
+    autoUpdate: boolean;    // check GitHub for a newer plugin build on startup and update
     // Auth
     authMethod: AuthMethod;
     pat: string;
