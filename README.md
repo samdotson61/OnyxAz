@@ -141,7 +141,8 @@ Browse and sync your entire ADO org without downloading it all up front. Enable 
 
 - It creates an **empty folder per project** under `<org>_ADO/` — fast, almost no bandwidth.
 - **Clicking a project folder** in the file explorer pulls that project's repos (each repo's default branch) into `<org>_ADO/<project>/<repo>/<branch>/`. You only download the projects you open.
-- Each mirrored repo keeps **its own commit state**, so pulls are **incremental** (only what changed) — like a Git client. On startup, projects you've already opened are refreshed automatically.
+- Each mirrored repo keeps **its own commit state**, so pulls are **incremental**. A pull only downloads files **not already on your device**; existing files are never silently overwritten. `Pull current repo` prompts you (like push) before overwriting any local file that has changed on ADO. On startup, projects you've already opened are refreshed automatically.
+- Pulls are **fault-tolerant**: a few large/slow files that time out don't abort the batch or re-download everything — they're just fetched on the next pull. Pushes run independently of pulls, so a long pull never blocks a push.
 
 **It works like GitHub Desktop, per repo:**
 

@@ -361,10 +361,12 @@ export default class OnyxAz extends Plugin {
             this.setState(CurrentAdoAction.pull);
             let done = 0;
             try {
+                // Explicit pull: prompt to overwrite any existing files that differ
+                // from ADO (same confirmation flow as the connected repo).
                 const n = await this.retry(() => this.adoManager.pullTarget(t, () => {
                     done++;
                     progress.setMessage(`OnyxAz: Pulling ${t.repo}\n${done} file(s)…`);
-                }));
+                }, this.makeConflictResolver()));
                 progress.hide();
                 new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s) into ${t.repo}.` : `OnyxAz: ${t.repo} is up to date.`);
                 this.app.workspace.trigger("onyxaz:refresh");
@@ -391,18 +393,18 @@ export default class OnyxAz extends Plugin {
         if (changes.length === 0) { new Notice(`OnyxAz: No local changes in ${t.repo}.`); return; }
         const message = this.adoManager.buildCommitMessage(changes.length);
         new ConfirmPushModal(this.app, this, changes, message, async (msg) => {
-            this.promiseQueue.addTask(async () => {
-                this.setState(CurrentAdoAction.push);
-                try {
-                    await this.adoManager.pushTarget(t, msg, changes);
-                    if (this.settings.notifyOnSuccess) new Notice(`OnyxAz: Pushed ${changes.length} file(s) to ${t.repo} · ${t.branch}.`);
-                    this.app.workspace.trigger("onyxaz:refresh");
-                } catch (e) {
-                    this.displayError(e);
-                } finally {
-                    this.setState(CurrentAdoAction.idle);
-                }
-            });
+            // Run the push directly (NOT via the pull queue) so a long/queued pull
+            // can't block it — pushes target one specific repo and are independent.
+            const progress = new Notice(`OnyxAz: Pushing ${changes.length} file(s) to ${t.repo}…`, 0);
+            try {
+                await this.adoManager.pushTarget(t, msg, changes);
+                progress.hide();
+                if (this.settings.notifyOnSuccess) new Notice(`OnyxAz: Pushed ${changes.length} file(s) to ${t.repo} · ${t.branch}.`);
+                this.app.workspace.trigger("onyxaz:refresh");
+            } catch (e) {
+                progress.hide();
+                this.displayError(e);
+            }
         }, { project: t.project, repository: t.repo, branch: t.branch }).open();
     }
 

@@ -644,7 +644,11 @@ export class AdoApiManager extends AdoManager {
 
     // Incremental pull of one repo/branch into its mirror folder. Records commit
     // state so subsequent pulls fetch only changes and pushes can be detected.
-    async pullTarget(t: RepoTarget, onFile?: () => void): Promise<number> {
+    async pullTarget(
+        t: RepoTarget,
+        onFile?: () => void,
+        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>
+    ): Promise<number> {
         await this.loadIgnorePatterns();
         const folder = this.getTargetFolder(t);
         const base = this.targetRepoUrl(t.project, t.repo);
@@ -669,44 +673,63 @@ export class AdoApiManager extends AdoManager {
 
         const state = await this.readTargetState(t);
         const newIds: Record<string, string> = {};
-        const toDownload: string[] = [];
+        const toDownload: string[] = []; // files not on device → always safe to add
+        const conflicts: string[] = [];  // exist locally but changed upstream
         for (const f of tree) {
             const rel = f.path.replace(/^\//, "");
             if (this.shouldIgnore(rel)) continue;
             newIds[rel] = f.objectId;
-            const known = state?.remoteObjectIds[rel];
             const exists = await adapter.exists(normalizePath(folder + rel));
-            if (!state || known !== f.objectId || !exists) toDownload.push(rel);
-        }
-
-        let n = 0;
-        await mapLimit(toDownload, 8, async (rel) => {
-            const resp = await this.apiFetch(
-                `${base}/items?path=${encodeURIComponent("/" + rel)}` +
-                `&versionDescriptor.version=${encodeURIComponent(t.branch)}` +
-                `&versionDescriptor.versionType=branch&$format=octetStream&api-version=${ADO_API_VERSION}`,
-                { headers: { Accept: "application/octet-stream" } }
-            );
-            await this.writeBinaryInto(normalizePath(folder + rel), resp.arrayBuffer);
-            n++;
-            if (onFile) onFile();
-        });
-
-        // Remove files deleted upstream since last sync.
-        if (state) {
-            for (const rel of Object.keys(state.remoteObjectIds)) {
-                if (!(rel in newIds)) {
-                    const p = normalizePath(folder + rel);
-                    if (await adapter.exists(p)) { await adapter.remove(p).catch(() => {}); n++; }
-                }
+            if (!exists) {
+                toDownload.push(rel);
+            } else if (!state || state.remoteObjectIds[rel] !== f.objectId) {
+                conflicts.push(rel); // existing file differs from remote
             }
+            // else: exists and unchanged → skip (never re-download what's already here)
         }
+
+        // Existing files are only overwritten with explicit consent (a resolver).
+        // Background/project pulls pass none, so they never clobber local files.
+        if (conflicts.length > 0 && resolveConflicts) {
+            const keep = await resolveConflicts(conflicts);
+            for (const rel of conflicts) if (!keep.has(rel)) toDownload.push(rel);
+        }
+
+        // Download in parallel, but tolerate per-file failures: one stalled/large
+        // file must not abort the whole pull (it would otherwise re-download
+        // everything on the next attempt). Failures are simply retried next pull,
+        // since they still don't exist on device.
+        let n = 0;
+        let failed = 0;
+        await mapLimit(toDownload, 8, async (rel) => {
+            try {
+                const resp = await this.apiFetch(
+                    `${base}/items?path=${encodeURIComponent("/" + rel)}` +
+                    `&versionDescriptor.version=${encodeURIComponent(t.branch)}` +
+                    `&versionDescriptor.versionType=branch&$format=octetStream&api-version=${ADO_API_VERSION}`,
+                    { headers: { Accept: "application/octet-stream" } }
+                );
+                await this.writeBinaryInto(normalizePath(folder + rel), resp.arrayBuffer);
+                n++;
+                if (onFile) onFile();
+            } catch {
+                failed++;
+            }
+        });
 
         await this.writeTargetState(t, {
             lastSyncedCommitId: latestCommitId,
             lastSyncTime: Date.now(),
             remoteObjectIds: newIds,
         });
+
+        if (failed > 0) {
+            new Notice(
+                `OnyxAz: ${failed} file(s) in ${t.repo} couldn't be downloaded (large or slow). ` +
+                `Run Pull again to fetch just those.`,
+                8000
+            );
+        }
         return n;
     }
 

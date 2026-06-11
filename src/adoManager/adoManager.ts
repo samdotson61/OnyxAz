@@ -39,7 +39,11 @@ export abstract class AdoManager {
 
     // Per-repo two-way sync for the org mirror.
     abstract getTargetFolder(t: RepoTarget): string;
-    abstract pullTarget(t: RepoTarget, onFile?: () => void): Promise<number>;
+    abstract pullTarget(
+        t: RepoTarget,
+        onFile?: () => void,
+        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>
+    ): Promise<number>;
     abstract getTargetStatus(t: RepoTarget): Promise<FileStatus[]>;
     abstract pushTarget(t: RepoTarget, message: string, changes: FileStatus[]): Promise<void>;
 
