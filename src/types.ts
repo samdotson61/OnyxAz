@@ -9,6 +9,7 @@ export interface OnyxAzSettings {
     repository: string;
     branch: string;
     localSyncPath: string;  // subfolder in vault where this repo's files live (blank = vault root)
+    orgMirror: boolean;     // scaffold all org projects as folders; pull each on click (pull-only)
     // Auth
     authMethod: AuthMethod;
     pat: string;

@@ -130,20 +130,34 @@ Click the **OnyxAz icon** in the left ribbon to open the Hub. From there you can
 - **Push changes** — upload local changes with a per-file confirmation
 - **Switch repository** — pick a different project/repo/branch without re-running the wizard
 - **Force re-pull** — wipe local sync state and re-download everything from the remote
+- **Mirror entire organization (pull-only)** — see below
 - **Open in Azure DevOps** — jump to the repo in your browser
+
+---
+
+## Mirroring the whole organization (pull-only)
+
+If you want to browse everything in your ADO org without downloading it all up front, use **Mirror entire organization** (Hub button, the `OnyxAz: Mirror organization` command, or the **Settings → OnyxAz → Mirror organization** toggle).
+
+- It creates an **empty folder per project** under `<org>_ADO/` — fast, almost no bandwidth.
+- **Clicking a project folder** in the file explorer pulls that project's repos (each repo's default branch) into `<org>_ADO/<project>/<repo>/<branch>/`. You only download the projects you open.
+- This is strictly **pull-only — it never pushes.** Pushing stays scoped to the single repository you connected with; the other mirrored folders are outside that scope and are never uploaded.
+
+> Click-to-pull works by listening to the file-explorer folder elements (Obsidian has no dedicated folder-click event). If a future Obsidian update changes the explorer and clicking stops triggering a pull, re-run the **Mirror organization** command to refresh.
 
 ---
 
 ## Push confirmation
 
-Every push requires explicit confirmation. Before anything is sent to the remote, a dialog shows:
+Every push requires explicit, deliberate confirmation. Before anything is sent to the remote, a dialog shows:
 
 - **Destination** — which project, repo, and branch will receive the changes
 - **File list** — files grouped as Added / Modified / Deleted, collapsible
 - **Warning** — reminder that this writes to the remote and cannot be automatically undone
 - **Commit message** — editable before confirming
+- **Confirmation checkbox** — the **Push** button stays disabled until you tick *"Yes — push N files to …"*, so a push never happens on a stray click
 
-Nothing is sent until you click **Push N files to remote →**.
+Nothing is sent until you tick the box and click **Push N files to remote →**.
 
 ---
 

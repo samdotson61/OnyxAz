@@ -30,6 +30,12 @@ export default class OnyxAz extends Plugin {
 
     state = { adoAction: CurrentAdoAction.idle };
 
+    // Org-mirror: maps a scaffolded project folder path -> ADO project name, and
+    // tracks which projects are already pulled / in flight (avoids re-pulling on
+    // every folder click).
+    orgProjectFolders: Map<string, string> = new Map();
+    private hydratedProjects = new Set<string>();
+
     private statusBarItem: StatusBar | null = null;
     private statusBarEl: HTMLElement | null = null;
     private statusBarInterval: ReturnType<typeof setInterval> | null = null;
@@ -52,12 +58,25 @@ export default class OnyxAz extends Plugin {
 
         this.registerCommands();
 
+        // Org-mirror: clicking a scaffolded project folder pulls that project.
+        // Obsidian has no folder-click event, so we delegate off the file
+        // explorer's folder-title elements (which carry a data-path).
+        this.registerDomEvent(document, "click", (evt) => {
+            const title = (evt.target as HTMLElement)?.closest?.(".nav-folder-title") as HTMLElement | null;
+            const path = title?.getAttribute("data-path");
+            if (path) this.handleFolderClick(path);
+        });
+
         this.app.workspace.onLayoutReady(async () => {
             if (!this.settings.hasCompletedOnboarding) {
                 // First install — guide the user through setup
                 new OnboardingModal(this.app, this).open();
             } else if (this.settings.pullOnStartup && this.isConfigured()) {
                 this.promiseQueue.addTask(() => this.pull());
+            }
+            // Rebuild the project-folder map so click-to-pull works after restart.
+            if (this.settings.orgMirror && this.isConfigured()) {
+                this.adoManager.scaffoldOrg().then((m) => { this.orgProjectFolders = m; }).catch(() => {});
             }
             this.automaticsManager.init();
             await this.updateCachedStatus();
@@ -142,6 +161,12 @@ export default class OnyxAz extends Plugin {
         });
 
         this.addCommand({
+            id: "mirror-organization",
+            name: "Mirror organization (scaffold project folders, pull-only)",
+            callback: () => this.mirrorOrganization(),
+        });
+
+        this.addCommand({
             id: "toggle-automatics",
             name: "Toggle automatic sync",
             callback: () => {
@@ -178,6 +203,54 @@ export default class OnyxAz extends Plugin {
         this.cachedStatus = null;
         this.automaticsManager.reload();
         await this.updateCachedStatus();
+    }
+
+    // ── Organization mirror (pull-only) ───────────────────────────────────────
+
+    // Scaffolds an empty folder per project under <org>_ADO/. Clicking a folder
+    // then pulls that project. Never pushes.
+    async mirrorOrganization(): Promise<void> {
+        if (!this.isConfigured()) {
+            new Notice("OnyxAz: Finish setup first — open Settings → OnyxAz.");
+            return;
+        }
+        this.settings.orgMirror = true;
+        await this.saveSettings();
+        this.setState(CurrentAdoAction.pull);
+        try {
+            this.orgProjectFolders = await this.adoManager.scaffoldOrg();
+            new Notice(
+                `OnyxAz: Created ${this.orgProjectFolders.size} project folder(s) under "${this.adoManager.getOrgRoot()}/". ` +
+                `Click a project to pull its repos.`,
+                8000
+            );
+        } catch (e) {
+            this.displayError(e);
+        } finally {
+            this.setState(CurrentAdoAction.idle);
+        }
+    }
+
+    // Called for every file-explorer folder click; pulls the project if the
+    // clicked folder is an un-hydrated scaffolded project folder.
+    private handleFolderClick(folderPath: string): void {
+        const project = this.orgProjectFolders.get(folderPath);
+        if (!project || this.hydratedProjects.has(project)) return;
+        this.hydratedProjects.add(project);
+        new Notice(`OnyxAz: Pulling "${project}"…`, 4000);
+        this.promiseQueue.addTask(async () => {
+            this.setState(CurrentAdoAction.pull);
+            try {
+                const { repos, files } = await this.adoManager.hydrateProject(project);
+                new Notice(`OnyxAz: Pulled ${files} file(s) from ${repos} repo(s) in "${project}".`, 6000);
+                this.app.workspace.trigger("onyxaz:refresh");
+            } catch (e) {
+                this.hydratedProjects.delete(project); // allow retry on failure
+                this.displayError(e);
+            } finally {
+                this.setState(CurrentAdoAction.idle);
+            }
+        });
     }
 
     private makeConflictResolver(): (conflicts: string[]) => Promise<Set<string>> {

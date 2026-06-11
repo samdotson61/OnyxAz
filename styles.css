@@ -189,6 +189,16 @@
     color: var(--text-normal);
     font-size: var(--font-text-size);
 }
+.onyxaz-confirm-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 10px 0 4px;
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+}
+.onyxaz-confirm-check input { margin: 0; }
+
 .onyxaz-file-group { margin: 8px 0; }
 .onyxaz-file-group-header {
     padding: 4px 0;

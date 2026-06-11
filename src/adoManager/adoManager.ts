@@ -2,7 +2,7 @@ import { requestUrl } from "obsidian";
 import type { RequestUrlResponse } from "obsidian";
 import type OnyxAz from "../main";
 import type { LogEntry, SyncState, SyncStatus } from "../types";
-import { buildSyncRoot } from "../util/syncRoot";
+import { buildSyncRoot, orgRootFolder } from "../util/syncRoot";
 
 export abstract class AdoManager {
     protected cachedState: SyncState | null = null;
@@ -24,6 +24,13 @@ export abstract class AdoManager {
     abstract getSyncState(): Promise<SyncState | null>;
     abstract saveSyncState(state: SyncState): Promise<void>;
 
+    // ── Organization mirror (pull-only) ───────────────────────────────────────
+    // Create an empty folder per project under the org root; returns a map of
+    // folder path -> project name for click-to-hydrate.
+    abstract scaffoldOrg(): Promise<Map<string, string>>;
+    // Pull every repo (default branch) of a project into its folder. Pull-only.
+    abstract hydrateProject(project: string): Promise<{ repos: number; files: number }>;
+
     getCachedState(): SyncState | null {
         return this.cachedState;
     }
@@ -43,6 +50,11 @@ export abstract class AdoManager {
             repository: s.repository,
             branch: s.branch,
         });
+    }
+
+    // Top-level org folder, e.g. "myorg_ADO" (no trailing slash).
+    getOrgRoot(): string {
+        return orgRootFolder(this.plugin.settings.organizationUrl);
     }
 
     protected get baseUrl(): string {

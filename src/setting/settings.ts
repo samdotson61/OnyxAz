@@ -345,6 +345,21 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
+            .setName("Mirror organization (pull-only)")
+            .setDesc(
+                "Scaffold every project as an empty folder under <org>_ADO/; clicking a project " +
+                "pulls its repos. Pull-only — never pushes. Use the Hub or the 'Mirror organization' " +
+                "command to (re)scaffold. Turning this off stops the startup scan."
+            )
+            .addToggle((t) =>
+                t.setValue(this.plugin.settings.orgMirror).onChange(async (v) => {
+                    this.plugin.settings.orgMirror = v;
+                    await this.plugin.saveSettings();
+                    if (v) this.plugin.mirrorOrganization();
+                })
+            );
+
+        new Setting(containerEl)
             .setName("Show status bar")
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.showStatusBar).onChange(async (v) => {

@@ -5,6 +5,7 @@ import type { AdoFile, FileStatus, LogEntry, SyncState, SyncStatus } from "../ty
 import type OnyxAz from "../main";
 import { gitBlobSha1 } from "../util/hash";
 import { matchesIgnore, parseIgnoreFile } from "../util/ignore";
+import { buildSyncRoot } from "../util/syncRoot";
 
 export class AdoApiManager extends AdoManager {
     // Active ignore patterns (DEFAULT_IGNORED + any from .onyxazignore), refreshed
@@ -519,6 +520,102 @@ export class AdoApiManager extends AdoManager {
             if (freshCommitId === baseCommitId) throw e;
             await attempt(freshCommitId);
         }
+    }
+
+    // ── Organization mirror (pull-only) ───────────────────────────────────────
+
+    // Lists repos in a project together with each repo's default branch.
+    async listRepositoriesDetailed(project: string): Promise<{ name: string; branch: string }[]> {
+        const org = this.plugin.settings.organizationUrl.replace(/\/$/, "");
+        const resp = await this.apiFetch(
+            `${org}/${encodeURIComponent(project)}/_apis/git/repositories?api-version=${ADO_API_VERSION}`
+        );
+        const data = resp.json;
+        return ((data.value ?? []) as { name: string; defaultBranch?: string }[]).map((r) => ({
+            name: r.name,
+            branch: (r.defaultBranch ?? "").replace(/^refs\/heads\//, "") || "main",
+        }));
+    }
+
+    // Creates an empty folder per project under the org root (no file content is
+    // downloaded). Returns a map of created folder path -> project name so the
+    // plugin can pull the right project when its folder is clicked.
+    async scaffoldOrg(): Promise<Map<string, string>> {
+        const projects = await this.listProjects();
+        const adapter = this.plugin.app.vault.adapter;
+        const map = new Map<string, string>();
+        for (const project of projects) {
+            const folder = normalizePath(
+                buildSyncRoot({ organizationUrl: this.plugin.settings.organizationUrl, project }).replace(/\/$/, "")
+            );
+            if (!folder) continue;
+            if (!(await adapter.exists(folder))) await adapter.mkdir(folder).catch(() => {});
+            map.set(folder, project);
+        }
+        return map;
+    }
+
+    // Pulls every repo (default branch) of a project into
+    // <org>_ADO/<project>/<repo>/<branch>/. Pull-only; mirrors remote content.
+    async hydrateProject(project: string): Promise<{ repos: number; files: number }> {
+        await this.loadIgnorePatterns();
+        const repos = await this.listRepositoriesDetailed(project);
+        let files = 0;
+        for (const r of repos) {
+            const dest = normalizePath(buildSyncRoot({
+                organizationUrl: this.plugin.settings.organizationUrl,
+                project,
+                repository: r.name,
+                branch: r.branch,
+            }));
+            files += await this.mirrorRepoBranch(project, r.name, r.branch, dest);
+        }
+        return { repos: repos.length, files };
+    }
+
+    private targetRepoUrl(project: string, repo: string): string {
+        const org = this.plugin.settings.organizationUrl.replace(/\/$/, "");
+        return `${org}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}`;
+    }
+
+    private async mirrorRepoBranch(project: string, repo: string, branch: string, destRoot: string): Promise<number> {
+        const base = this.targetRepoUrl(project, repo);
+        let tree: AdoFile[] = [];
+        try {
+            const resp = await this.apiFetch(
+                `${base}/items?recursionLevel=Full` +
+                `&versionDescriptor.version=${encodeURIComponent(branch)}` +
+                `&versionDescriptor.versionType=branch&api-version=${ADO_API_VERSION}`
+            );
+            tree = ((resp.json.value ?? []) as AdoFile[]).filter((f) => !f.isFolder);
+        } catch {
+            return 0; // empty repo / inaccessible branch — leave the folder empty
+        }
+
+        let n = 0;
+        for (const f of tree) {
+            const rel = f.path.replace(/^\//, "");
+            if (this.shouldIgnore(rel)) continue;
+            const resp = await this.apiFetch(
+                `${base}/items?path=${encodeURIComponent("/" + rel)}` +
+                `&versionDescriptor.version=${encodeURIComponent(branch)}` +
+                `&versionDescriptor.versionType=branch&$format=octetStream&api-version=${ADO_API_VERSION}`,
+                { headers: { Accept: "application/octet-stream" } }
+            );
+            await this.writeBinaryInto(normalizePath(destRoot + rel), resp.arrayBuffer);
+            n++;
+        }
+        return n;
+    }
+
+    private async writeBinaryInto(fullPath: string, buffer: ArrayBuffer): Promise<void> {
+        const adapter = this.plugin.app.vault.adapter;
+        const parts = fullPath.split("/");
+        for (let i = 1; i < parts.length; i++) {
+            const dir = parts.slice(0, i).join("/");
+            if (dir && !(await adapter.exists(dir))) await adapter.mkdir(dir).catch(() => {});
+        }
+        await adapter.writeBinary(fullPath, buffer);
     }
 
     // ── Commit and sync ───────────────────────────────────────────────────────

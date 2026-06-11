@@ -62,18 +62,33 @@ export class ConfirmPushModal extends Modal {
             if (input.value.trim()) this.commitMessage = input.value;
         });
 
+        const n = this.changes.length;
+
+        // ── Required confirmation toggle ──────────────────────────────────────
+        // A deliberate gate so a push never happens on a stray click.
+        const confirmWrap = contentEl.createDiv({ cls: "onyxaz-confirm-check" });
+        const checkbox = confirmWrap.createEl("input") as HTMLInputElement;
+        checkbox.type = "checkbox";
+        checkbox.id = "onyxaz-confirm-push";
+        const lbl = confirmWrap.createEl("label", {
+            text: ` Yes — push ${n} file${n !== 1 ? "s" : ""} to ${s.project} / ${s.repository} · ${s.branch}`,
+        });
+        lbl.htmlFor = "onyxaz-confirm-push";
+
         // ── Buttons ───────────────────────────────────────────────────────────
         const row = contentEl.createDiv({ cls: "onyxaz-nav-row" });
 
         const cancelBtn = row.createEl("button", { text: "Cancel" });
         cancelBtn.addEventListener("click", () => this.close());
 
-        const n = this.changes.length;
         const pushBtn = row.createEl("button", {
             text: `Push ${n} file${n !== 1 ? "s" : ""} to remote →`,
         });
         pushBtn.addClass("mod-cta");
+        pushBtn.disabled = true; // enabled only once the box is ticked
+        checkbox.addEventListener("change", () => { pushBtn.disabled = !checkbox.checked; });
         pushBtn.addEventListener("click", async () => {
+            if (!checkbox.checked) return;
             pushBtn.disabled = true;
             pushBtn.textContent = "Pushing…";
             cancelBtn.disabled = true;

@@ -45,6 +45,13 @@ export function orgSlug(organizationUrl: string | undefined): string {
     }
 }
 
+// The top-level org folder, e.g. "myorg_ADO" (or "ADO" when the org can't be
+// derived). No trailing slash.
+export function orgRootFolder(organizationUrl?: string): string {
+    const org = sanitizeSegment(orgSlug(organizationUrl));
+    return org ? `${org}_ADO` : "ADO";
+}
+
 export function buildSyncRoot(parts: SyncRootParts): string {
     const explicit = (parts.localSyncPath ?? "").trim().replace(/^\/+|\/+$/g, "");
     if (explicit) return explicit + "/";
@@ -52,10 +59,7 @@ export function buildSyncRoot(parts: SyncRootParts): string {
     const project = sanitizeSegment(parts.project);
     if (!project) return "";
 
-    const org = sanitizeSegment(orgSlug(parts.organizationUrl));
-    const root = org ? `${org}_ADO` : "ADO";
-
-    const segments = [root, project];
+    const segments = [orgRootFolder(parts.organizationUrl), project];
     const repo = sanitizeSegment(parts.repository);
     const branch = sanitizeSegment(parts.branch);
     if (repo) segments.push(repo);

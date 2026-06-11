@@ -101,6 +101,11 @@ export class HubModal extends Modal {
                 this.plugin.promiseQueue.addTask(() => this.plugin.forcePull());
             });
 
+            this.btn(actions, "Mirror entire organization (pull-only)…", "", () => {
+                this.close();
+                this.plugin.mirrorOrganization();
+            });
+
             // Open in ADO (link styled as button)
             const adoUrl =
                 `${s.organizationUrl.replace(/\/$/, "")}` +
