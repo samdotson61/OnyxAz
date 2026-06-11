@@ -60,7 +60,7 @@ No release zip, no build — you only need the installer and (for SSO) a setup d
 
 1. Get **[`install.cmd`](scripts/install.cmd)** (Windows) — or `scripts/install.sh` for macOS/Linux. Your IT team can hand it to you directly along with your setup document.
 2. **Windows:** double-click **`install.cmd`**.  **macOS / Linux:** run `bash install.sh`.
-3. Pick your vault from the list it shows (or paste the folder path). The installer **downloads OnyxAz from GitHub** and copies it into `…/.obsidian/plugins/onyxaz/` — no admin rights needed.
+3. Pick your vault from the list it shows, or choose **[N] Create a NEW vault** to point at a fresh folder (it'll be created for you — then open it in Obsidian via *Open folder as vault*). The installer **downloads OnyxAz from GitHub** and copies it into `…/.obsidian/plugins/onyxaz/` — no admin rights needed.
 4. Open Obsidian → **Settings → Community plugins** → enable **OnyxAz**, then follow the setup screen.
 
 > **Offline / locked-down network:** if your machine can't reach GitHub, put `main.js`, `manifest.json`, and `styles.css` in the same folder as the installer — it uses those instead of downloading.

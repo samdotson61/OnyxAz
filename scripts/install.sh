@@ -42,24 +42,39 @@ case "$(uname -s)" in
     *)      CFG="$HOME/.config/obsidian/obsidian.json" ;;
 esac
 
-VAULT=""
+VAULTS=()
 if [ -f "$CFG" ] && command -v python3 >/dev/null 2>&1; then
     mapfile -t VAULTS < <(python3 -c "import json;d=json.load(open('$CFG'));[print(v['path']) for v in d.get('vaults',{}).values() if v.get('path')]" 2>/dev/null || true)
-    if [ "${#VAULTS[@]}" -gt 0 ]; then
-        echo "Obsidian vaults found:"
-        for i in "${!VAULTS[@]}"; do echo "  [$((i+1))] ${VAULTS[$i]}"; done
-        echo "  [c] Enter a different folder"
-        read -rp "Choose your vault: " choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#VAULTS[@]}" ]; then
-            VAULT="${VAULTS[$((choice-1))]}"
-        fi
-    fi
 fi
-[ -n "$VAULT" ] || read -rp "Enter the full path to your Obsidian vault folder: " VAULT
+
+echo "Where should OnyxAz be installed?"
+for i in "${!VAULTS[@]}"; do echo "  [$((i+1))] ${VAULTS[$i]}"; done
+echo "  [n] Create a NEW vault (choose a folder for it)"
+echo "  [o] Use another existing folder"
+read -rp "Choose: " choice
+
+VAULT=""; IS_NEW=""
+if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#VAULTS[@]}" ]; then
+    VAULT="${VAULTS[$((choice-1))]}"
+elif [[ "$choice" =~ ^[Nn] ]]; then
+    read -rp "Enter the full path for the new vault folder (it will be created): " VAULT
+    IS_NEW=1
+else
+    read -rp "Enter the full path to the vault folder: " VAULT
+fi
 
 VAULT="${VAULT/#\~/$HOME}"
-[ -d "$VAULT" ] || { echo "Folder not found: $VAULT"; exit 1; }
-if [ ! -d "$VAULT/.obsidian" ]; then
+[ -n "$VAULT" ] || { echo "No folder given."; exit 1; }
+
+if [ ! -d "$VAULT" ]; then
+    if [ -z "$IS_NEW" ]; then
+        read -rp "That folder doesn't exist. Create it as a new vault? (Y/n) " mk
+        [ "$mk" = "n" ] || [ "$mk" = "N" ] && exit 1
+        IS_NEW=1
+    fi
+    mkdir -p "$VAULT"
+    echo "Created new vault folder: $VAULT"
+elif [ -z "$IS_NEW" ] && [ ! -d "$VAULT/.obsidian" ]; then
     read -rp "That folder has no .obsidian subfolder. Continue anyway? (y/N) " ans
     [ "$ans" = "y" ] || exit 1
 fi
@@ -101,7 +116,13 @@ fi
 
 echo
 echo "Done. OnyxAz installed to: $DEST"
-echo "Next: open Obsidian, enable OnyxAz in Settings -> Community plugins."
+if [ -n "$IS_NEW" ]; then
+    echo "Next: in Obsidian, use the vault switcher (bottom-left) -> Open folder as vault -> select:"
+    echo "  $VAULT"
+    echo "Then turn off Restricted mode and enable OnyxAz in Settings -> Community plugins."
+else
+    echo "Next: open Obsidian, enable OnyxAz in Settings -> Community plugins."
+fi
 if [ -n "$AUTO" ]; then
     echo "Then choose SSO, enter your work email, and sign in (org details are pre-filled)."
 else

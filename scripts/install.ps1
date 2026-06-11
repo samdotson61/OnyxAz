@@ -65,25 +65,34 @@ if (Test-Path $cfg) {
 }
 
 $vault = $null
-if ($vaults.Count -gt 0) {
-    Write-Host "Obsidian vaults found on this PC:`n"
-    for ($i = 0; $i -lt $vaults.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $vaults[$i]) }
-    Write-Host "  [C] Enter a different folder`n"
-    $choice = Read-Host "Choose your vault (1-$($vaults.Count), or C)"
-    if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $vaults.Count) {
-        $vault = $vaults[[int]$choice - 1]
-    }
+$isNew = $false
+
+Write-Host "Where should OnyxAz be installed?`n"
+for ($i = 0; $i -lt $vaults.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $vaults[$i]) }
+Write-Host "  [N] Create a NEW vault (choose a folder for it)"
+Write-Host "  [O] Use another existing folder`n"
+$choice = (Read-Host "Choose").Trim()
+
+if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $vaults.Count) {
+    $vault = $vaults[[int]$choice - 1]
+} elseif ($choice -match '^[Nn]') {
+    $vault = Read-Host "Enter the full path for the new vault folder (it will be created)"
+    $isNew = $true
+} else {
+    $vault = Read-Host "Enter the full path to the vault folder"
 }
-if (-not $vault) {
-    $vault = Read-Host "Enter the full path to your Obsidian vault folder"
-}
-$vault = $vault.Trim().Trim('"')
+$vault = ("" + $vault).Trim().Trim('"')
+if (-not $vault) { Write-Host "No folder given." -ForegroundColor Red; Pause-Exit 1 }
 
 if (-not (Test-Path $vault)) {
-    Write-Host "Folder not found: $vault" -ForegroundColor Red
-    Pause-Exit 1
-}
-if (-not (Test-Path (Join-Path $vault ".obsidian"))) {
+    if (-not $isNew) {
+        $mk = Read-Host "That folder doesn't exist. Create it as a new vault? (Y/n)"
+        if ($mk -match '^[Nn]') { Pause-Exit 1 }
+        $isNew = $true
+    }
+    New-Item -ItemType Directory -Force -Path $vault | Out-Null
+    Write-Host "Created new vault folder: $vault" -ForegroundColor Green
+} elseif (-not $isNew -and -not (Test-Path (Join-Path $vault ".obsidian"))) {
     $ans = Read-Host "That folder has no .obsidian subfolder, so it may not be a vault. Continue anyway? (y/N)"
     if ($ans -ne "y") { Pause-Exit 1 }
 }
@@ -144,8 +153,14 @@ if (-not (Test-Path $dataPath)) {
 Write-Host "`nDone. OnyxAz installed to:" -ForegroundColor Green
 Write-Host "  $dest`n"
 Write-Host "Next steps:"
-Write-Host "  1. Open Obsidian (restart it if it's already running)."
-Write-Host "  2. Settings -> Community plugins -> enable OnyxAz."
+if ($isNew) {
+    Write-Host "  1. In Obsidian, click the vault switcher (bottom-left) -> Open folder as vault"
+    Write-Host "     -> select:  $vault"
+    Write-Host "  2. Settings -> Community plugins -> turn off Restricted mode -> enable OnyxAz."
+} else {
+    Write-Host "  1. Open Obsidian (restart it if it's already running)."
+    Write-Host "  2. Settings -> Community plugins -> enable OnyxAz."
+}
 if ($autoFilled) {
     Write-Host "  3. On the setup screen: choose SSO, enter your work email, and sign in."
     Write-Host "     (Your organization URL and client ID are already filled in.)"
