@@ -37,9 +37,9 @@ export class HubModal extends Modal {
             });
             card.createEl("div", { text: `Branch: ${s.branch}`, cls: "onyxaz-hub-meta" });
 
-            const folder = s.localSyncPath || `ADO/${s.project}`;
+            const folder = this.plugin.adoManager.getSyncRoot().replace(/\/+$/, "") || "(vault root)";
             card.createEl("div", {
-                text: `Vault folder: ${folder}/`,
+                text: `Vault folder: ${folder}`,
                 cls: "onyxaz-hub-path",
             });
 

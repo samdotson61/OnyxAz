@@ -326,7 +326,7 @@ export class OnboardingModal extends Modal {
     private renderDone(): void {
         const { contentEl } = this;
         const s = this.plugin.settings;
-        const syncFolder = s.localSyncPath || `ADO/${s.project}`;
+        const syncFolder = this.plugin.adoManager.getSyncRoot().replace(/\/+$/, "") || "(vault root)";
 
         contentEl.createEl("p", {
             text: `Your vault is connected to ${s.project} / ${s.repository} on branch ${s.branch}.`,

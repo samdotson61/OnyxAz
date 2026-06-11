@@ -1,7 +1,7 @@
 {
     "id": "onyxaz",
     "name": "OnyxAz",
-    "version": "0.4.4",
+    "version": "0.5.0",
     "minAppVersion": "1.4.0",
     "description": "Sync your vault with an Azure DevOps Git repository automatically.",
     "author": "Sam Dotson",

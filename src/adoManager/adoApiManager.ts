@@ -181,17 +181,13 @@ export class AdoApiManager extends AdoManager {
     }
 
     // ── Sync root ─────────────────────────────────────────────────────────────
-    // Returns the vault-relative folder prefix for this repo (always ends with
-    // "/" when non-empty, or "" for vault-root mode). All local file I/O
-    // prepends this; state keys stay remote-relative so the format is unchanged.
+    // Vault-relative folder prefix for this repo/branch (ends with "/" when
+    // non-empty, or "" for vault-root mode). All local file I/O prepends this;
+    // state keys stay remote-relative so the on-disk state format is unchanged.
+    // Computed in the base class so the UI can show the same path.
 
     private get syncRoot(): string {
-        // Explicit override wins; otherwise default to ADO/<project>/ so files
-        // never land at the vault root without any configuration.
-        const explicit = (this.plugin.settings.localSyncPath ?? "").trim().replace(/^\/+|\/+$/g, "");
-        if (explicit) return explicit + "/";
-        const project = (this.plugin.settings.project ?? "").trim();
-        return project ? `ADO/${project}/` : "";
+        return this.getSyncRoot();
     }
 
     // ── Adapter helpers ───────────────────────────────────────────────────────

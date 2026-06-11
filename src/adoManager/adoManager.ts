@@ -2,6 +2,7 @@ import { requestUrl } from "obsidian";
 import type { RequestUrlResponse } from "obsidian";
 import type OnyxAz from "../main";
 import type { LogEntry, SyncState, SyncStatus } from "../types";
+import { buildSyncRoot } from "../util/syncRoot";
 
 export abstract class AdoManager {
     protected cachedState: SyncState | null = null;
@@ -29,6 +30,18 @@ export abstract class AdoManager {
 
     resetState(): void {
         this.cachedState = null;
+    }
+
+    // Vault-relative folder prefix for the connected repo/branch (ends with "/",
+    // or "" for vault-root mode). Default: ADO/<project>/<repo>/<branch>/.
+    getSyncRoot(): string {
+        const s = this.plugin.settings;
+        return buildSyncRoot({
+            localSyncPath: s.localSyncPath,
+            project: s.project,
+            repository: s.repository,
+            branch: s.branch,
+        });
     }
 
     protected get baseUrl(): string {
