@@ -1,7 +1,7 @@
 import { normalizePath, Notice, TFile } from "obsidian";
 import { AdoManager } from "./adoManager";
 import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, IGNORE_FILE_PATH, STATE_FILE_PATH } from "../constants";
-import type { AdoFile, FileStatus, LogEntry, SyncState, SyncStatus } from "../types";
+import type { AdoFile, FileStatus, LogEntry, RepoTarget, SyncState, SyncStatus } from "../types";
 import type OnyxAz from "../main";
 import { gitBlobSha1 } from "../util/hash";
 import { matchesIgnore, parseIgnoreFile } from "../util/ignore";
@@ -564,8 +564,9 @@ export class AdoApiManager extends AdoManager {
         return map;
     }
 
-    // Pulls every repo (default branch) of a project into
-    // <org>_ADO/<project>/<repo>/<branch>/. Pull-only; mirrors remote content.
+    // Pulls (incrementally) every repo (default branch) of a project into
+    // <org>_ADO/<project>/<repo>/<branch>/, each with its own commit state so it
+    // can later be pushed back. Returns repo/file counts.
     async hydrateProject(
         project: string,
         onProgress?: (files: number, repo: string) => void
@@ -574,13 +575,8 @@ export class AdoApiManager extends AdoManager {
         const repos = await this.listRepositoriesDetailed(project);
         let files = 0;
         for (const r of repos) {
-            const dest = normalizePath(buildSyncRoot({
-                organizationUrl: this.plugin.settings.organizationUrl,
-                project,
-                repository: r.name,
-                branch: r.branch,
-            }));
-            await this.mirrorRepoBranch(project, r.name, r.branch, dest, () => {
+            const target: RepoTarget = { project, repo: r.name, branch: r.branch };
+            await this.pullTarget(target, () => {
                 files++;
                 if (onProgress) onProgress(files, r.name);
             });
@@ -593,35 +589,245 @@ export class AdoApiManager extends AdoManager {
         return `${org}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}`;
     }
 
-    private async mirrorRepoBranch(project: string, repo: string, branch: string, destRoot: string, onFile?: () => void): Promise<number> {
-        const base = this.targetRepoUrl(project, repo);
-        let tree: AdoFile[] = [];
+    // Vault-relative folder for a target, always ending with "/".
+    getTargetFolder(t: RepoTarget): string {
+        return buildSyncRoot({
+            organizationUrl: this.plugin.settings.organizationUrl,
+            project: t.project,
+            repository: t.repo,
+            branch: t.branch,
+        });
+    }
+
+    private targetStatePath(t: RepoTarget): string {
+        const key = [t.project, t.repo, t.branch]
+            .map((s) => s.replace(/[^a-zA-Z0-9._-]+/g, "_"))
+            .join("__");
+        return normalizePath(`.onyxaz/repos/${key}.json`);
+    }
+
+    private async readTargetState(t: RepoTarget): Promise<SyncState | null> {
+        const adapter = this.plugin.app.vault.adapter;
+        const path = this.targetStatePath(t);
+        try {
+            if (!(await adapter.exists(path))) return null;
+            return JSON.parse(await adapter.read(path)) as SyncState;
+        } catch {
+            return null;
+        }
+    }
+
+    private async writeTargetState(t: RepoTarget, state: SyncState): Promise<void> {
+        const adapter = this.plugin.app.vault.adapter;
+        const dir = normalizePath(".onyxaz/repos");
+        if (!(await adapter.exists(dir))) await adapter.mkdir(dir).catch(() => {});
+        await adapter.write(this.targetStatePath(t), JSON.stringify(state, null, 2));
+    }
+
+    private async targetCommitId(t: RepoTarget): Promise<string> {
         try {
             const resp = await this.apiFetch(
-                `${base}/items?recursionLevel=Full` +
-                `&versionDescriptor.version=${encodeURIComponent(branch)}` +
-                `&versionDescriptor.versionType=branch&api-version=${ADO_API_VERSION}`
+                `${this.targetRepoUrl(t.project, t.repo)}/commits` +
+                `?searchCriteria.itemVersion.version=${encodeURIComponent(t.branch)}` +
+                `&searchCriteria.itemVersion.versionType=branch&searchCriteria.$top=1&api-version=${ADO_API_VERSION}`
             );
-            tree = ((resp.json.value ?? []) as AdoFile[]).filter((f) => !f.isFolder);
+            return (resp.json.value?.[0]?.commitId as string) ?? EMPTY_REPO_SHA;
         } catch {
-            return 0; // empty repo / inaccessible branch — leave the folder empty
+            return EMPTY_REPO_SHA;
+        }
+    }
+
+    private async readBinaryAt(fullPath: string): Promise<ArrayBuffer | null> {
+        try { return await this.plugin.app.vault.adapter.readBinary(normalizePath(fullPath)); } catch { return null; }
+    }
+
+    // Incremental pull of one repo/branch into its mirror folder. Records commit
+    // state so subsequent pulls fetch only changes and pushes can be detected.
+    async pullTarget(t: RepoTarget, onFile?: () => void): Promise<number> {
+        await this.loadIgnorePatterns();
+        const folder = this.getTargetFolder(t);
+        const base = this.targetRepoUrl(t.project, t.repo);
+        const adapter = this.plugin.app.vault.adapter;
+
+        let tree: AdoFile[];
+        let latestCommitId: string;
+        try {
+            const [treeResp, commitId] = await Promise.all([
+                this.apiFetch(
+                    `${base}/items?recursionLevel=Full` +
+                    `&versionDescriptor.version=${encodeURIComponent(t.branch)}` +
+                    `&versionDescriptor.versionType=branch&api-version=${ADO_API_VERSION}`
+                ),
+                this.targetCommitId(t),
+            ]);
+            tree = ((treeResp.json.value ?? []) as AdoFile[]).filter((f) => !f.isFolder);
+            latestCommitId = commitId;
+        } catch {
+            return 0; // empty / inaccessible — leave folder as-is
         }
 
-        let n = 0;
+        const state = await this.readTargetState(t);
+        const newIds: Record<string, string> = {};
+        const toDownload: string[] = [];
         for (const f of tree) {
             const rel = f.path.replace(/^\//, "");
             if (this.shouldIgnore(rel)) continue;
+            newIds[rel] = f.objectId;
+            const known = state?.remoteObjectIds[rel];
+            const exists = await adapter.exists(normalizePath(folder + rel));
+            if (!state || known !== f.objectId || !exists) toDownload.push(rel);
+        }
+
+        let n = 0;
+        for (const rel of toDownload) {
             const resp = await this.apiFetch(
                 `${base}/items?path=${encodeURIComponent("/" + rel)}` +
-                `&versionDescriptor.version=${encodeURIComponent(branch)}` +
+                `&versionDescriptor.version=${encodeURIComponent(t.branch)}` +
                 `&versionDescriptor.versionType=branch&$format=octetStream&api-version=${ADO_API_VERSION}`,
                 { headers: { Accept: "application/octet-stream" } }
             );
-            await this.writeBinaryInto(normalizePath(destRoot + rel), resp.arrayBuffer);
+            await this.writeBinaryInto(normalizePath(folder + rel), resp.arrayBuffer);
             n++;
             if (onFile) onFile();
         }
+
+        // Remove files deleted upstream since last sync.
+        if (state) {
+            for (const rel of Object.keys(state.remoteObjectIds)) {
+                if (!(rel in newIds)) {
+                    const p = normalizePath(folder + rel);
+                    if (await adapter.exists(p)) { await adapter.remove(p).catch(() => {}); n++; }
+                }
+            }
+        }
+
+        await this.writeTargetState(t, {
+            lastSyncedCommitId: latestCommitId,
+            lastSyncTime: Date.now(),
+            remoteObjectIds: newIds,
+        });
         return n;
+    }
+
+    private async targetLocalPaths(t: RepoTarget): Promise<Map<string, number>> {
+        const root = this.getTargetFolder(t); // ends with "/"
+        const adapter = this.plugin.app.vault.adapter;
+        const result = new Map<string, number>();
+        const visit = async (dir: string) => {
+            try {
+                const { files, folders } = await adapter.list(dir);
+                for (const p of files) {
+                    const rel = p.slice(root.length);
+                    if (!this.shouldIgnore(rel)) {
+                        const st = await adapter.stat(p);
+                        result.set(rel, st?.mtime ?? 0);
+                    }
+                }
+                for (const f of folders) {
+                    const relf = f.slice(root.length);
+                    if (!this.shouldIgnore(relf + "/")) await visit(f);
+                }
+            } catch { /* skip */ }
+        };
+        const base = root.replace(/\/$/, "");
+        if (base && (await adapter.exists(base))) await visit(base);
+        return result;
+    }
+
+    // Local changes in a mirrored repo (vs its last-synced state).
+    async getTargetStatus(t: RepoTarget): Promise<FileStatus[]> {
+        await this.loadIgnorePatterns();
+        const folder = this.getTargetFolder(t);
+        const state = await this.readTargetState(t);
+        const local = await this.targetLocalPaths(t);
+        const changed: FileStatus[] = [];
+        if (!state) {
+            for (const p of local.keys()) changed.push({ path: p, status: "A" });
+            return changed;
+        }
+        const syncTime = state.lastSyncTime;
+        for (const [p, mtime] of local) {
+            if (!(p in state.remoteObjectIds)) {
+                changed.push({ path: p, status: "A" });
+            } else if (mtime === 0) {
+                const buf = await this.readBinaryAt(folder + p);
+                if (!buf || (await gitBlobSha1(buf)) !== state.remoteObjectIds[p]) changed.push({ path: p, status: "M" });
+            } else if (mtime > syncTime + 1000) {
+                changed.push({ path: p, status: "M" });
+            }
+        }
+        for (const p of Object.keys(state.remoteObjectIds)) {
+            if (!local.has(p) && !this.shouldIgnore(p)) changed.push({ path: p, status: "D" });
+        }
+        return changed;
+    }
+
+    // Commits + pushes local changes to a single mirrored repo. Pull-first safety:
+    // on a concurrency rejection it only retries if none of the pushed files were
+    // touched upstream, otherwise it asks the user to pull that repo first.
+    async pushTarget(t: RepoTarget, message: string, changes: FileStatus[]): Promise<void> {
+        if (changes.length === 0) return;
+        const folder = this.getTargetFolder(t);
+        const base = this.targetRepoUrl(t.project, t.repo);
+        const state = await this.readTargetState(t);
+        const baseCommit = state?.lastSyncedCommitId ?? (await this.targetCommitId(t));
+        const remotePaths = new Set(Object.keys(state?.remoteObjectIds ?? {}));
+        const maxBytes = this.plugin.settings.maxAttachmentSizeMB * 1024 * 1024;
+
+        const pushChanges: object[] = [];
+        const pushedPaths: string[] = [];
+        for (const fs of changes) {
+            if (fs.status === "D") {
+                pushChanges.push({ changeType: "delete", item: { path: `/${fs.path}` } });
+                pushedPaths.push(fs.path);
+                continue;
+            }
+            const buffer = await this.readBinaryAt(folder + fs.path);
+            if (!buffer) { new Notice(`OnyxAz: Skipping ${fs.path} — not readable.`); continue; }
+            if (buffer.byteLength > maxBytes) {
+                new Notice(`OnyxAz: Skipping ${fs.path} — exceeds the ${this.plugin.settings.maxAttachmentSizeMB} MB limit.`, 6000);
+                continue;
+            }
+            pushChanges.push({
+                changeType: remotePaths.has(fs.path) ? "edit" : "add",
+                item: { path: `/${fs.path}` },
+                newContent: { content: arrayBufferToBase64(buffer), contentType: "base64Encoded" },
+            });
+            pushedPaths.push(fs.path);
+        }
+        if (pushChanges.length === 0) return;
+
+        const attempt = (oldObjectId: string) =>
+            this.apiFetch(`${base}/pushes?api-version=${ADO_API_VERSION}`, {
+                method: "POST",
+                body: JSON.stringify({
+                    refUpdates: [{ name: `refs/heads/${t.branch}`, oldObjectId }],
+                    commits: [{ comment: message, changes: pushChanges }],
+                }),
+            });
+
+        try {
+            await attempt(baseCommit);
+        } catch (e) {
+            const err = e as Error & { status?: number };
+            const concurrency = err.status === 409 ||
+                (err.status === 400 && /fast-forward|push (was )?rejected/i.test(err.message));
+            if (!concurrency) throw e;
+            const fresh = await this.targetCommitId(t);
+            if (fresh === baseCommit) throw e;
+            // Only auto-retry if the remote didn't change a file we're pushing.
+            const treeResp = await this.apiFetch(
+                `${base}/items?recursionLevel=Full&versionDescriptor.version=${encodeURIComponent(t.branch)}` +
+                `&versionDescriptor.versionType=branch&api-version=${ADO_API_VERSION}`
+            );
+            const freshIds = new Map(((treeResp.json.value ?? []) as AdoFile[]).map((f) => [f.path.replace(/^\//, ""), f.objectId]));
+            const base0 = state?.remoteObjectIds ?? {};
+            if (pushedPaths.some((p) => freshIds.get(p) !== base0[p])) throw e;
+            await attempt(fresh);
+        }
+
+        // Refresh this repo's state after pushing.
+        await this.pullTarget(t);
     }
 
     private async writeBinaryInto(fullPath: string, buffer: ArrayBuffer): Promise<void> {

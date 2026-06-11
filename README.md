@@ -135,13 +135,22 @@ Click the **OnyxAz icon** in the left ribbon to open the Hub. From there you can
 
 ---
 
-## Mirroring the whole organization (pull-only)
+## Mirroring the whole organization (two-way)
 
-If you want to browse everything in your ADO org without downloading it all up front, use **Mirror entire organization** (Hub button, the `OnyxAz: Mirror organization` command, or the **Settings → OnyxAz → Mirror organization** toggle).
+Browse and sync your entire ADO org without downloading it all up front. Enable it via **Mirror entire organization** (Hub button, the `OnyxAz: Mirror organization` command, or the **Settings → OnyxAz → Mirror organization** toggle).
 
 - It creates an **empty folder per project** under `<org>_ADO/` — fast, almost no bandwidth.
 - **Clicking a project folder** in the file explorer pulls that project's repos (each repo's default branch) into `<org>_ADO/<project>/<repo>/<branch>/`. You only download the projects you open.
-- This is strictly **pull-only — it never pushes.** Pushing stays scoped to the single repository you connected with; the other mirrored folders are outside that scope and are never uploaded.
+- Each mirrored repo keeps **its own commit state**, so pulls are **incremental** (only what changed) — like a Git client. On startup, projects you've already opened are refreshed automatically.
+
+**It works like GitHub Desktop, per repo:**
+
+| Action | How |
+|---|---|
+| Pull the repo you're in | `OnyxAz: Pull current repo` |
+| Push the repo you're in | `OnyxAz: Push current repo` — shows the per-file confirmation; commits + pushes **only that repo** |
+
+There is **never a blanket org-wide push** — you push one repo at a time, and every push requires the confirmation checkbox. "Current repo" = the mirrored repo containing the file you have open.
 
 > Click-to-pull works by listening to the file-explorer folder elements (Obsidian has no dedicated folder-click event). If a future Obsidian update changes the explorer and clicking stops triggering a pull, re-run the **Mirror organization** command to refresh.
 
@@ -189,7 +198,9 @@ All commands are available from the command palette (`Ctrl/Cmd + P`):
 | `OnyxAz: Pull` | Download remote changes |
 | `OnyxAz: Push` | Upload local changes (with confirmation) |
 | `OnyxAz: Force re-pull` | Wipe state and re-download all remote files |
-| `OnyxAz: Mirror organization` | Scaffold a folder per project (pull-only) |
+| `OnyxAz: Mirror organization` | Scaffold a folder per project (two-way mirror) |
+| `OnyxAz: Pull current repo` | Pull the mirrored repo of the open file |
+| `OnyxAz: Push current repo` | Commit + push the mirrored repo of the open file |
 | `OnyxAz: List changed files` | Show what would be pushed |
 | `OnyxAz: Toggle automatic sync` | Pause / resume scheduled pulls |
 | `OnyxAz: Recover` | Reset a stuck or hung sync |

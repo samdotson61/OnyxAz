@@ -10,7 +10,9 @@ export class ConfirmPushModal extends Modal {
         private readonly plugin: OnyxAz,
         private readonly changes: FileStatus[],
         defaultMessage: string,
-        private readonly onConfirm: (message: string) => Promise<void>
+        private readonly onConfirm: (message: string) => Promise<void>,
+        // Optional override (org-mirror pushes a specific repo, not the connected one).
+        private readonly dest?: { project: string; repository: string; branch: string }
     ) {
         super(app);
         this.commitMessage = defaultMessage;
@@ -20,6 +22,7 @@ export class ConfirmPushModal extends Modal {
     onOpen(): void {
         const { contentEl } = this;
         const s = this.plugin.settings;
+        const target = this.dest ?? { project: s.project, repository: s.repository, branch: s.branch };
         this.titleEl.setText("Confirm Push");
 
         // ── Destination banner ────────────────────────────────────────────────
@@ -29,7 +32,7 @@ export class ConfirmPushModal extends Modal {
         destInfo.createEl("div", { cls: "onyxaz-banner-label", text: "Pushing to" });
         destInfo.createEl("div", {
             cls: "onyxaz-banner-value",
-            text: `${s.project}  /  ${s.repository}  ·  ${s.branch}`,
+            text: `${target.project}  /  ${target.repository}  ·  ${target.branch}`,
         });
 
         // ── Change summary chips ──────────────────────────────────────────────
@@ -71,7 +74,7 @@ export class ConfirmPushModal extends Modal {
         checkbox.type = "checkbox";
         checkbox.id = "onyxaz-confirm-push";
         const lbl = confirmWrap.createEl("label", {
-            text: ` Yes — push ${n} file${n !== 1 ? "s" : ""} to ${s.project} / ${s.repository} · ${s.branch}`,
+            text: ` Yes — push ${n} file${n !== 1 ? "s" : ""} to ${target.project} / ${target.repository} · ${target.branch}`,
         });
         lbl.htmlFor = "onyxaz-confirm-push";
 

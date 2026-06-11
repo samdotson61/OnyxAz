@@ -1,7 +1,7 @@
 import { requestUrl } from "obsidian";
 import type { RequestUrlResponse } from "obsidian";
 import type OnyxAz from "../main";
-import type { LogEntry, SyncState, SyncStatus } from "../types";
+import type { FileStatus, LogEntry, RepoTarget, SyncState, SyncStatus } from "../types";
 import { buildSyncRoot, orgRootFolder } from "../util/syncRoot";
 
 export abstract class AdoManager {
@@ -31,11 +31,17 @@ export abstract class AdoManager {
     // Create an empty folder per project under the org root; returns a map of
     // folder path -> project name for click-to-hydrate.
     abstract scaffoldOrg(): Promise<Map<string, string>>;
-    // Pull every repo (default branch) of a project into its folder. Pull-only.
+    // Pull every repo (default branch) of a project into its folder (incremental).
     abstract hydrateProject(
         project: string,
         onProgress?: (files: number, repo: string) => void
     ): Promise<{ repos: number; files: number }>;
+
+    // Per-repo two-way sync for the org mirror.
+    abstract getTargetFolder(t: RepoTarget): string;
+    abstract pullTarget(t: RepoTarget, onFile?: () => void): Promise<number>;
+    abstract getTargetStatus(t: RepoTarget): Promise<FileStatus[]>;
+    abstract pushTarget(t: RepoTarget, message: string, changes: FileStatus[]): Promise<void>;
 
     getCachedState(): SyncState | null {
         return this.cachedState;

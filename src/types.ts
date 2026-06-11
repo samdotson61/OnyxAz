@@ -1,5 +1,12 @@
 export type AuthMethod = "pat" | "entra";
 
+// A single repository/branch the org mirror syncs two-way (its own commit state).
+export interface RepoTarget {
+    project: string;
+    repo: string;
+    branch: string;
+}
+
 export interface OnyxAzSettings {
     // Onboarding
     hasCompletedOnboarding: boolean;

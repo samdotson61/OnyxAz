@@ -1,7 +1,7 @@
 import { Notice, Plugin, addIcon, normalizePath, requestUrl } from "obsidian";
 import { DEFAULT_SETTINGS, ONYXAZ_REPO_RAW } from "./constants";
 import { compareVersions } from "./util/version";
-import type { FileStatus, OnyxAzSettings, SyncStatus } from "./types";
+import type { FileStatus, OnyxAzSettings, RepoTarget, SyncStatus } from "./types";
 import { CurrentAdoAction } from "./types";
 import { AdoApiManager } from "./adoManager/adoApiManager";
 import type { AdoManager } from "./adoManager/adoManager";
@@ -75,9 +75,22 @@ export default class OnyxAz extends Plugin {
             } else if (this.settings.pullOnStartup && this.isConfigured()) {
                 this.promiseQueue.addTask(() => this.pull());
             }
-            // Rebuild the project-folder map so click-to-pull works after restart.
+            // Rebuild the project-folder map and refresh already-pulled projects
+            // (incrementally) so the mirror is current on launch — like a git client
+            // fetching your cloned repos on open. Unopened projects stay empty.
             if (this.settings.orgMirror && this.isConfigured()) {
-                this.adoManager.scaffoldOrg().then((m) => { this.orgProjectFolders = m; }).catch(() => {});
+                this.adoManager.scaffoldOrg().then(async (m) => {
+                    this.orgProjectFolders = m;
+                    for (const [folder, project] of m) {
+                        try {
+                            const { folders } = await this.app.vault.adapter.list(folder);
+                            if (folders.length > 0) {
+                                this.hydratedProjects.add(project);
+                                this.promiseQueue.addTask(() => this.adoManager.hydrateProject(project));
+                            }
+                        } catch { /* skip */ }
+                    }
+                }).catch(() => {});
             }
             // Quietly check GitHub for a newer plugin build, if enabled.
             if (this.settings.autoUpdate) {
@@ -169,6 +182,18 @@ export default class OnyxAz extends Plugin {
             id: "mirror-organization",
             name: "Mirror organization (scaffold project folders, pull-only)",
             callback: () => this.mirrorOrganization(),
+        });
+
+        this.addCommand({
+            id: "pull-current-repo",
+            name: "Pull current repo (org mirror)",
+            callback: () => this.pullCurrentRepo(),
+        });
+
+        this.addCommand({
+            id: "push-current-repo",
+            name: "Push current repo (org mirror)",
+            callback: () => this.pushCurrentRepo(),
         });
 
         this.addCommand({
@@ -285,6 +310,75 @@ export default class OnyxAz extends Plugin {
                 this.setState(CurrentAdoAction.idle);
             }
         });
+    }
+
+    // Derives the mirrored repo target from the currently open file, or null if
+    // the active file isn't inside an <org>_ADO/<project>/<repo>/<branch>/ folder.
+    private targetFromActiveFile(): RepoTarget | null {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) return null;
+        const prefix = this.adoManager.getOrgRoot() + "/";
+        if (!file.path.startsWith(prefix)) return null;
+        const rest = file.path.slice(prefix.length).split("/");
+        if (rest.length < 4) return null; // need project/repo/branch/<file…>
+        const [projectFolder, repo, branch] = rest;
+        const full = `${this.adoManager.getOrgRoot()}/${projectFolder}`;
+        const project = this.orgProjectFolders.get(full) ?? projectFolder;
+        return { project, repo, branch };
+    }
+
+    // Pull the mirrored repo that the active file belongs to (incremental).
+    pullCurrentRepo(): void {
+        const t = this.targetFromActiveFile();
+        if (!t) { new Notice("OnyxAz: Open a file inside a mirrored repo first."); return; }
+        const progress = new Notice(`OnyxAz: Pulling ${t.repo}…`, 0);
+        this.promiseQueue.addTask(async () => {
+            this.setState(CurrentAdoAction.pull);
+            let done = 0;
+            try {
+                const n = await this.adoManager.pullTarget(t, () => {
+                    done++;
+                    progress.setMessage(`OnyxAz: Pulling ${t.repo}\n${done} file(s)…`);
+                });
+                progress.hide();
+                new Notice(n > 0 ? `OnyxAz: Pulled ${n} file(s) into ${t.repo}.` : `OnyxAz: ${t.repo} is up to date.`);
+                this.app.workspace.trigger("onyxaz:refresh");
+            } catch (e) {
+                progress.hide();
+                this.displayError(e);
+            } finally {
+                this.setState(CurrentAdoAction.idle);
+            }
+        });
+    }
+
+    // Commit + push the active file's mirrored repo (with confirmation).
+    async pushCurrentRepo(): Promise<void> {
+        const t = this.targetFromActiveFile();
+        if (!t) { new Notice("OnyxAz: Open a file inside a mirrored repo first."); return; }
+        let changes: FileStatus[];
+        try {
+            changes = await this.adoManager.getTargetStatus(t);
+        } catch (e) {
+            this.displayError(e);
+            return;
+        }
+        if (changes.length === 0) { new Notice(`OnyxAz: No local changes in ${t.repo}.`); return; }
+        const message = this.adoManager.buildCommitMessage(changes.length);
+        new ConfirmPushModal(this.app, this, changes, message, async (msg) => {
+            this.promiseQueue.addTask(async () => {
+                this.setState(CurrentAdoAction.push);
+                try {
+                    await this.adoManager.pushTarget(t, msg, changes);
+                    if (this.settings.notifyOnSuccess) new Notice(`OnyxAz: Pushed ${changes.length} file(s) to ${t.repo} · ${t.branch}.`);
+                    this.app.workspace.trigger("onyxaz:refresh");
+                } catch (e) {
+                    this.displayError(e);
+                } finally {
+                    this.setState(CurrentAdoAction.idle);
+                }
+            });
+        }, { project: t.project, repository: t.repo, branch: t.branch }).open();
     }
 
     // ── Recovery & self-update ─────────────────────────────────────────────────
