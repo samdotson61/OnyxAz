@@ -40,6 +40,10 @@ export interface OnyxAzSettings {
     showChangedFilesCount: boolean;
     notifyOnSuccess: boolean;
     maxAttachmentSizeMB: number;
+    // Per-file timeout (seconds) for downloading a single file. Large/slow files
+    // need more than the 60s used for control requests; raise this if big files
+    // keep failing to download.
+    largeFileTimeoutSec: number;
 }
 
 export interface FileStatus {

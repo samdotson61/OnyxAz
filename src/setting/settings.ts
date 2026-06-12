@@ -418,6 +418,22 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                         }
                     })
             );
+
+        new Setting(containerEl)
+            .setName("Large-file timeout (seconds)")
+            .setDesc("Per-file download time limit. Raise this if big files in a repo keep failing to download.")
+            .addText((t) =>
+                t
+                    .setPlaceholder("300")
+                    .setValue(String(this.plugin.settings.largeFileTimeoutSec))
+                    .onChange(async (v) => {
+                        const n = parseInt(v, 10);
+                        if (!isNaN(n) && n > 0) {
+                            this.plugin.settings.largeFileTimeoutSec = n;
+                            await this.plugin.saveSettings();
+                        }
+                    })
+            );
     }
 
     // ── Advanced (collapsed by default) ──────────────────────────────────────

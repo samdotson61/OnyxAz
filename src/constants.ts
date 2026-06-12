@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: OnyxAzSettings = {
     showChangedFilesCount: false,
     notifyOnSuccess: true,
     maxAttachmentSizeMB: 5,
+    largeFileTimeoutSec: 300,
 };
 
 // Raw GitHub base for self-update (must match where releases are published).
@@ -51,6 +52,10 @@ export const EMPTY_REPO_SHA = "0000000000000000000000000000000000000000";
 // How many files download concurrently during a pull. Higher = faster on big
 // repos, but watch for ADO 429 throttling if pushed much further.
 export const PULL_CONCURRENCY = 16;
+
+// Concurrency for the retry pass over files that failed the wide first pass —
+// kept low so each large/slow file gets nearly the full connection to itself.
+export const RETRY_CONCURRENCY = 2;
 
 // Microsoft Entra / Azure AD
 export const ENTRA_ADO_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798";

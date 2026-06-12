@@ -1,6 +1,6 @@
 import { normalizePath, Notice, TFile } from "obsidian";
 import { AdoManager } from "./adoManager";
-import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, IGNORE_FILE_PATH, PULL_CONCURRENCY, STATE_FILE_PATH } from "../constants";
+import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, IGNORE_FILE_PATH, PULL_CONCURRENCY, RETRY_CONCURRENCY, STATE_FILE_PATH } from "../constants";
 import type { AdoFile, FileStatus, LogEntry, RepoTarget, SyncState, SyncStatus } from "../types";
 import type OnyxAz from "../main";
 import { gitBlobSha1 } from "../util/hash";
@@ -123,6 +123,7 @@ export class AdoApiManager extends AdoManager {
             `&api-version=${ADO_API_VERSION}`;
         const resp = await this.apiFetch(url, {
             headers: { Accept: "application/octet-stream" },
+            timeoutMs: this.plugin.settings.largeFileTimeoutSec * 1000,
         });
         return resp.arrayBuffer;
     }
@@ -697,27 +698,44 @@ export class AdoApiManager extends AdoManager {
             for (const rel of conflicts) if (!keep.has(rel)) toDownload.push(rel);
         }
 
-        // Download in parallel, but tolerate per-file failures: one stalled/large
-        // file must not abort the whole pull (it would otherwise re-download
-        // everything on the next attempt). Failures are simply retried next pull,
-        // since they still don't exist on device.
+        // Downloads tolerate per-file failures: one stalled/large file must not
+        // abort the whole pull (that would re-download everything next attempt).
+        // First pass runs wide (PULL_CONCURRENCY) for throughput; any files that
+        // fail there (typically large ones starved of bandwidth by the wide fan-
+        // out) get a second pass at low concurrency, where each gets nearly the
+        // full pipe plus the long per-file timeout. Only what still fails after
+        // that is reported.
+        const timeoutMs = this.plugin.settings.largeFileTimeoutSec * 1000;
         let n = 0;
-        let failed = 0;
-        await mapLimit(toDownload, PULL_CONCURRENCY, async (rel) => {
+        const downloadOne = async (rel: string): Promise<boolean> => {
             try {
                 const resp = await this.apiFetch(
                     `${base}/items?path=${encodeURIComponent("/" + rel)}` +
                     `&versionDescriptor.version=${encodeURIComponent(t.branch)}` +
                     `&versionDescriptor.versionType=branch&$format=octetStream&api-version=${ADO_API_VERSION}`,
-                    { headers: { Accept: "application/octet-stream" } }
+                    { headers: { Accept: "application/octet-stream" }, timeoutMs }
                 );
                 await this.writeBinaryInto(normalizePath(folder + rel), resp.arrayBuffer);
                 n++;
                 if (onFile) onFile();
+                return true;
             } catch {
-                failed++;
+                return false;
             }
+        };
+
+        const failedFirst: string[] = [];
+        await mapLimit(toDownload, PULL_CONCURRENCY, async (rel) => {
+            if (!(await downloadOne(rel))) failedFirst.push(rel);
         });
+
+        const stillFailed: string[] = [];
+        if (failedFirst.length > 0) {
+            new Notice(`OnyxAz: Retrying ${failedFirst.length} large/slow file(s) in ${t.repo} one at a time…`, 5000);
+            await mapLimit(failedFirst, RETRY_CONCURRENCY, async (rel) => {
+                if (!(await downloadOne(rel))) stillFailed.push(rel);
+            });
+        }
 
         await this.writeTargetState(t, {
             lastSyncedCommitId: latestCommitId,
@@ -725,11 +743,11 @@ export class AdoApiManager extends AdoManager {
             remoteObjectIds: newIds,
         });
 
-        if (failed > 0) {
+        if (stillFailed.length > 0) {
             new Notice(
-                `OnyxAz: ${failed} file(s) in ${t.repo} couldn't be downloaded (large or slow). ` +
-                `Run Pull again to fetch just those.`,
-                8000
+                `OnyxAz: ${stillFailed.length} file(s) in ${t.repo} are too large to download within ${this.plugin.settings.largeFileTimeoutSec}s. ` +
+                `Raise "Large-file timeout" in Settings → OnyxAz, then Pull again.`,
+                10000
             );
         }
         return n;

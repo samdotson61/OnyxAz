@@ -146,7 +146,7 @@ export abstract class AdoManager {
 
     protected async apiFetch(
         url: string,
-        options: { method?: string; headers?: Record<string, string>; body?: string; priority?: boolean } = {}
+        options: { method?: string; headers?: Record<string, string>; body?: string; priority?: boolean; timeoutMs?: number } = {}
     ): Promise<RequestUrlResponse> {
         const authHeader = await this.resolveAuthHeader();
         const headers: Record<string, string> = {
@@ -162,7 +162,9 @@ export abstract class AdoManager {
             // Race the request against a timeout so a stalled connection fails fast
             // (rather than hanging the whole sync queue — e.g. when pulling several
             // projects). requestUrl can't be cancelled, but the timeout lets us move on.
-            const TIMEOUT_MS = 60000;
+            // Large binary downloads pass a longer timeoutMs — the 60s default is
+            // tuned for small control/JSON requests, not multi-MB transfers.
+            const TIMEOUT_MS = options.timeoutMs ?? 60000;
             const resp = await Promise.race([
                 requestUrl({ url, method: options.method ?? "GET", headers, body: options.body, throw: false }),
                 new Promise<RequestUrlResponse>((_, reject) =>
