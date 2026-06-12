@@ -1,6 +1,6 @@
 {
     "name": "obsidian-onyxaz",
-    "version": "0.8.7",
+    "version": "0.8.8",
     "description": "Azure DevOps Git sync for Obsidian",
     "main": "main.js",
     "scripts": {
