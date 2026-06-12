@@ -434,6 +434,36 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
                         }
                     })
             );
+
+        new Setting(containerEl)
+            .setName("Documents only")
+            .setDesc(
+                "Sync only document files (see the list below). Code, binaries, and build " +
+                "artifacts in a repo are skipped — they're never downloaded or pushed."
+            )
+            .addToggle((t) =>
+                t.setValue(this.plugin.settings.documentsOnly).onChange(async (v) => {
+                    this.plugin.settings.documentsOnly = v;
+                    await this.plugin.saveSettings();
+                    this.display(); // show/hide the extension list
+                })
+            );
+
+        if (this.plugin.settings.documentsOnly) {
+            new Setting(containerEl)
+                .setName("Document file types")
+                .setDesc("Comma- or space-separated extensions to treat as documents.")
+                .addTextArea((t) => {
+                    t.setPlaceholder("md, pdf, docx, png …")
+                        .setValue(this.plugin.settings.documentExtensions)
+                        .onChange(async (v) => {
+                            this.plugin.settings.documentExtensions = v;
+                            await this.plugin.saveSettings();
+                        });
+                    t.inputEl.rows = 3;
+                    t.inputEl.style.width = "100%";
+                });
+        }
     }
 
     // ── Advanced (collapsed by default) ──────────────────────────────────────

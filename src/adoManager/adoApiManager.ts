@@ -5,6 +5,7 @@ import type { AdoFile, FileStatus, LogEntry, RepoTarget, SyncState, SyncStatus }
 import type OnyxAz from "../main";
 import { gitBlobSha1 } from "../util/hash";
 import { matchesIgnore, parseIgnoreFile } from "../util/ignore";
+import { isDocumentPath, parseExtensions, DEFAULT_DOCUMENT_EXTENSIONS } from "../util/docFilter";
 import { buildSyncRoot } from "../util/syncRoot";
 import { mapLimit } from "../util/concurrency";
 
@@ -12,6 +13,10 @@ export class AdoApiManager extends AdoManager {
     // Active ignore patterns (DEFAULT_IGNORED + any from .onyxazignore), refreshed
     // at the start of each top-level operation via loadIgnorePatterns().
     private ignorePatterns: string[] = [...DEFAULT_IGNORED];
+    // Allowed document extensions when "documents only" is on (parsed from the
+    // setting in loadIgnorePatterns; seeded with the defaults so a stray call
+    // before the first load never filters everything out).
+    private documentExtensions: string[] = [...DEFAULT_DOCUMENT_EXTENSIONS];
 
     constructor(plugin: OnyxAz) {
         super(plugin);
@@ -19,7 +24,9 @@ export class AdoApiManager extends AdoManager {
 
     // Reads the optional .onyxazignore file in the vault root and merges its
     // patterns with the built-in defaults. Called before each sync operation.
+    // Also refreshes the document-extension allowlist from settings.
     private async loadIgnorePatterns(): Promise<void> {
+        this.documentExtensions = parseExtensions(this.plugin.settings.documentExtensions);
         const adapter = this.plugin.app.vault.adapter;
         const path = normalizePath(IGNORE_FILE_PATH);
         try {
@@ -183,6 +190,17 @@ export class AdoApiManager extends AdoManager {
         return matchesIgnore(path, this.ignorePatterns);
     }
 
+    // Whether a file should be synced at all: not ignored, and — when "documents
+    // only" is on — a recognised document type. Code/binaries/build artifacts are
+    // skipped so a documentation repo doesn't drag its entire build output into
+    // the vault. Use this for file decisions; use shouldIgnore for folder pruning
+    // (folders have no extension to test).
+    private shouldSyncFile(path: string): boolean {
+        if (this.shouldIgnore(path)) return false;
+        if (!this.plugin.settings.documentsOnly) return true;
+        return isDocumentPath(path, this.documentExtensions);
+    }
+
     // ── Sync root ─────────────────────────────────────────────────────────────
     // Vault-relative folder prefix for this repo/branch (ends with "/" when
     // non-empty, or "" for vault-root mode). All local file I/O prepends this;
@@ -208,7 +226,7 @@ export class AdoApiManager extends AdoManager {
             const relativePath = root
                 ? (f.path.startsWith(root) ? f.path.slice(root.length) : null)
                 : f.path;
-            if (relativePath !== null && !this.shouldIgnore(relativePath)) {
+            if (relativePath !== null && this.shouldSyncFile(relativePath)) {
                 result.set(relativePath, f.stat.mtime);
             }
         }
@@ -220,7 +238,7 @@ export class AdoApiManager extends AdoManager {
                 const { files, folders } = await this.plugin.app.vault.adapter.list(dir);
                 for (const p of files) {
                     const relativePath = root ? p.slice(root.length) : p;
-                    if (!this.shouldIgnore(relativePath) && !result.has(relativePath)) {
+                    if (this.shouldSyncFile(relativePath) && !result.has(relativePath)) {
                         // Get actual mtime so status logic can correctly compare against lastSyncTime.
                         // Without this, non-indexed files (e.g. .txt) always appear as Modified.
                         const stat = await this.plugin.app.vault.adapter.stat(p);
@@ -293,7 +311,7 @@ export class AdoApiManager extends AdoManager {
         }
 
         for (const path of Object.keys(state.remoteObjectIds)) {
-            if (!localPaths.has(path) && !this.shouldIgnore(path)) {
+            if (!localPaths.has(path) && this.shouldSyncFile(path)) {
                 changed.push({ path, status: "D" });
             }
         }
@@ -320,7 +338,7 @@ export class AdoApiManager extends AdoManager {
         const conflicts: string[] = [];
         for (const remoteFile of remoteTree) {
             const filePath = remoteFile.path.replace(/^\//, "");
-            if (this.shouldIgnore(filePath)) continue;
+            if (!this.shouldSyncFile(filePath)) continue;
             const storedObjectId = state?.remoteObjectIds[filePath];
             const remoteChanged = !state || storedObjectId !== remoteFile.objectId;
             if (remoteChanged && state) {
@@ -338,7 +356,7 @@ export class AdoApiManager extends AdoManager {
         const toDownload: string[] = [];
         for (const remoteFile of remoteTree) {
             const filePath = remoteFile.path.replace(/^\//, "");
-            if (this.shouldIgnore(filePath)) continue;
+            if (!this.shouldSyncFile(filePath)) continue;
 
             newRemoteObjectIds[filePath] = remoteFile.objectId;
             const storedObjectId = state?.remoteObjectIds[filePath];
@@ -680,7 +698,7 @@ export class AdoApiManager extends AdoManager {
         const conflicts: string[] = [];  // exist locally but changed upstream
         for (const f of tree) {
             const rel = f.path.replace(/^\//, "");
-            if (this.shouldIgnore(rel)) continue;
+            if (!this.shouldSyncFile(rel)) continue;
             newIds[rel] = f.objectId;
             const exists = await adapter.exists(normalizePath(folder + rel));
             if (!exists) {
@@ -762,7 +780,7 @@ export class AdoApiManager extends AdoManager {
                 const { files, folders } = await adapter.list(dir);
                 for (const p of files) {
                     const rel = p.slice(root.length);
-                    if (!this.shouldIgnore(rel)) {
+                    if (this.shouldSyncFile(rel)) {
                         const st = await adapter.stat(p);
                         result.set(rel, st?.mtime ?? 0);
                     }
@@ -801,7 +819,7 @@ export class AdoApiManager extends AdoManager {
             }
         }
         for (const p of Object.keys(state.remoteObjectIds)) {
-            if (!local.has(p) && !this.shouldIgnore(p)) changed.push({ path: p, status: "D" });
+            if (!local.has(p) && this.shouldSyncFile(p)) changed.push({ path: p, status: "D" });
         }
         return changed;
     }

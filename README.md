@@ -240,6 +240,17 @@ If something still wedges, run **`OnyxAz: Recover`** (or the **Recover** button 
 
 ---
 
+## Documents only
+
+By default OnyxAz syncs **only document files** — Markdown, text, PDFs, Office
+documents, and the image/diagram types notes commonly embed. Source code,
+binaries, and build artifacts in a repo are skipped entirely: they're never
+counted, downloaded, or pushed, so a documentation repo doesn't drag its whole
+build output into your vault.
+
+Toggle this and edit the allowed extension list under **Settings → OnyxAz →
+Documents only**. Turn it off to mirror every file in the repo.
+
 ## Ignoring files
 
 OnyxAz always ignores:

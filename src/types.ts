@@ -44,6 +44,10 @@ export interface OnyxAzSettings {
     // need more than the 60s used for control requests; raise this if big files
     // keep failing to download.
     largeFileTimeoutSec: number;
+    // When on, only document files (see documentExtensions) are synced — code,
+    // binaries, and build artifacts in a repo are skipped entirely.
+    documentsOnly: boolean;
+    documentExtensions: string; // comma/space-separated extension allowlist
 }
 
 export interface FileStatus {

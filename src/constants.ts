@@ -1,4 +1,5 @@
 import type { OnyxAzSettings } from "./types";
+import { DEFAULT_DOCUMENT_EXTENSIONS } from "./util/docFilter";
 
 // Client ID is entered (or pasted from the admin's setup document) during the
 // SSO setup screen; tenant is auto-detected from the user's email. There is no
@@ -34,6 +35,8 @@ export const DEFAULT_SETTINGS: OnyxAzSettings = {
     notifyOnSuccess: true,
     maxAttachmentSizeMB: 5,
     largeFileTimeoutSec: 300,
+    documentsOnly: true,
+    documentExtensions: DEFAULT_DOCUMENT_EXTENSIONS.join(", "),
 };
 
 // Raw GitHub base for self-update (must match where releases are published).
