@@ -83,6 +83,15 @@ export class HubModal extends Modal {
 
         this.btn(actions, configured ? "Switch repository…" : "Connect to repository…", "", () => {
             new RepoTreeModal(this.app, this.plugin, async (project, repo, branch) => {
+                // In org-mirror mode the connected repo is vestigial — selecting a
+                // branch should bring that branch down into its own mirror folder
+                // (so non-default branches, which aren't auto-pulled at startup,
+                // become accessible) rather than swapping the single connection.
+                if (this.plugin.settings.orgMirror) {
+                    this.close();
+                    this.plugin.openMirrorBranch(project, repo, branch);
+                    return;
+                }
                 // Clear explicit override so the new repo gets its auto folder
                 this.plugin.settings.localSyncPath = "";
                 this.plugin.settings.project = project;

@@ -352,6 +352,40 @@ export default class OnyxAz extends Plugin {
         return { project, repo, branch };
     }
 
+    // Pulls a specific repo/branch as an org-mirror target into
+    // <org>_ADO/<project>/<repo>/<branch>/, so branches other than the default
+    // (the only one pulled at startup) can be accessed on demand — e.g. when
+    // picked in "Switch repository". The chosen branch lands in its own folder
+    // alongside any default-branch folder, each with its own per-repo state.
+    openMirrorBranch(project: string, repo: string, branch: string): void {
+        const t: RepoTarget = { project, repo, branch };
+        const progress = new Notice(`OnyxAz: Pulling ${repo} · ${branch}…`, 0);
+        this.promiseQueue.addTask(async () => {
+            this.setState(CurrentAdoAction.pull);
+            let done = 0;
+            try {
+                const n = await this.retry(() => this.adoManager.pullTarget(t, () => {
+                    done++;
+                    progress.setMessage(`OnyxAz: Pulling ${repo} · ${branch}\n${done} file(s)…`);
+                }, this.makeConflictResolver()));
+                progress.hide();
+                this.hydratedProjects.add(project);
+                new Notice(
+                    n > 0
+                        ? `OnyxAz: Pulled ${n} file(s) into ${repo} · ${branch}.`
+                        : `OnyxAz: ${repo} · ${branch} is up to date.`,
+                    6000
+                );
+                this.app.workspace.trigger("onyxaz:refresh");
+            } catch (e) {
+                progress.hide();
+                this.displayError(e);
+            } finally {
+                this.setState(CurrentAdoAction.idle);
+            }
+        });
+    }
+
     // Pull the mirrored repo that the active file belongs to (incremental).
     pullCurrentRepo(): void {
         const t = this.targetFromActiveFile();
