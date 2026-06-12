@@ -77,7 +77,7 @@ export class AdoApiManager extends AdoManager {
 
     // ── Remote tree & content ────────────────────────────────────────────────
 
-    private async getLatestCommitId(): Promise<string> {
+    private async getLatestCommitId(priority = false): Promise<string> {
         const branch = this.plugin.settings.branch;
         const url =
             `${this.baseUrl}/commits` +
@@ -86,7 +86,7 @@ export class AdoApiManager extends AdoManager {
             `&searchCriteria.$top=1` +
             `&api-version=${ADO_API_VERSION}`;
         try {
-            const resp = await this.apiFetch(url);
+            const resp = await this.apiFetch(url, { priority });
             const data = resp.json;
             if (!data.value?.length) return EMPTY_REPO_SHA;
             return data.value[0].commitId as string;
@@ -95,7 +95,7 @@ export class AdoApiManager extends AdoManager {
         }
     }
 
-    private async getRemoteFileTree(): Promise<AdoFile[]> {
+    private async getRemoteFileTree(priority = false): Promise<AdoFile[]> {
         const branch = this.plugin.settings.branch;
         const url =
             `${this.baseUrl}/items` +
@@ -104,7 +104,7 @@ export class AdoApiManager extends AdoManager {
             `&versionDescriptor.versionType=branch` +
             `&api-version=${ADO_API_VERSION}`;
         try {
-            const resp = await this.apiFetch(url);
+            const resp = await this.apiFetch(url, { priority });
             const data = resp.json;
             return ((data.value ?? []) as AdoFile[]).filter((f) => !f.isFolder);
         } catch {
@@ -424,8 +424,8 @@ export class AdoApiManager extends AdoManager {
             remotePathSet = new Set(Object.keys(state.remoteObjectIds));
         } else {
             const [cid, tree] = await Promise.all([
-                this.getLatestCommitId(),
-                this.getRemoteFileTree(),
+                this.getLatestCommitId(true),
+                this.getRemoteFileTree(true),
             ]);
             baseCommitId = cid;
             remotePathSet = new Set(tree.map((f) => f.path.replace(/^\//, "")));
@@ -504,6 +504,7 @@ export class AdoApiManager extends AdoManager {
         const attempt = (oldObjectId: string) =>
             this.apiFetch(`${this.baseUrl}/pushes?api-version=${ADO_API_VERSION}`, {
                 method: "POST",
+                priority: true,
                 body: JSON.stringify({
                     refUpdates: [{ name: `refs/heads/${this.plugin.settings.branch}`, oldObjectId }],
                     commits: [{ comment: message, changes: pushChanges }],
@@ -520,13 +521,13 @@ export class AdoApiManager extends AdoManager {
             if (!isConcurrency) throw e;
 
             // Remote moved. Bail if it touched any file we're about to write.
-            const freshTree = await this.getRemoteFileTree();
+            const freshTree = await this.getRemoteFileTree(true);
             const freshIds = new Map(freshTree.map((f) => [f.path.replace(/^\//, ""), f.objectId]));
             const base = state?.remoteObjectIds ?? {};
             const overlap = pushedPaths.some((p) => freshIds.get(p) !== base[p]);
             if (overlap) throw e;
 
-            const freshCommitId = await this.getLatestCommitId();
+            const freshCommitId = await this.getLatestCommitId(true);
             if (freshCommitId === baseCommitId) throw e;
             await attempt(freshCommitId);
         }
@@ -625,12 +626,13 @@ export class AdoApiManager extends AdoManager {
         await adapter.write(this.targetStatePath(t), JSON.stringify(state, null, 2));
     }
 
-    private async targetCommitId(t: RepoTarget): Promise<string> {
+    private async targetCommitId(t: RepoTarget, priority = false): Promise<string> {
         try {
             const resp = await this.apiFetch(
                 `${this.targetRepoUrl(t.project, t.repo)}/commits` +
                 `?searchCriteria.itemVersion.version=${encodeURIComponent(t.branch)}` +
-                `&searchCriteria.itemVersion.versionType=branch&searchCriteria.$top=1&api-version=${ADO_API_VERSION}`
+                `&searchCriteria.itemVersion.versionType=branch&searchCriteria.$top=1&api-version=${ADO_API_VERSION}`,
+                { priority }
             );
             return (resp.json.value?.[0]?.commitId as string) ?? EMPTY_REPO_SHA;
         } catch {
@@ -794,7 +796,7 @@ export class AdoApiManager extends AdoManager {
         const folder = this.getTargetFolder(t);
         const base = this.targetRepoUrl(t.project, t.repo);
         const state = await this.readTargetState(t);
-        const baseCommit = state?.lastSyncedCommitId ?? (await this.targetCommitId(t));
+        const baseCommit = state?.lastSyncedCommitId ?? (await this.targetCommitId(t, true));
         const remotePaths = new Set(Object.keys(state?.remoteObjectIds ?? {}));
         const maxBytes = this.plugin.settings.maxAttachmentSizeMB * 1024 * 1024;
 
@@ -824,6 +826,7 @@ export class AdoApiManager extends AdoManager {
         const attempt = (oldObjectId: string) =>
             this.apiFetch(`${base}/pushes?api-version=${ADO_API_VERSION}`, {
                 method: "POST",
+                priority: true,
                 body: JSON.stringify({
                     refUpdates: [{ name: `refs/heads/${t.branch}`, oldObjectId }],
                     commits: [{ comment: message, changes: pushChanges }],
@@ -837,12 +840,13 @@ export class AdoApiManager extends AdoManager {
             const concurrency = err.status === 409 ||
                 (err.status === 400 && /fast-forward|push (was )?rejected/i.test(err.message));
             if (!concurrency) throw e;
-            const fresh = await this.targetCommitId(t);
+            const fresh = await this.targetCommitId(t, true);
             if (fresh === baseCommit) throw e;
             // Only auto-retry if the remote didn't change a file we're pushing.
             const treeResp = await this.apiFetch(
                 `${base}/items?recursionLevel=Full&versionDescriptor.version=${encodeURIComponent(t.branch)}` +
-                `&versionDescriptor.versionType=branch&api-version=${ADO_API_VERSION}`
+                `&versionDescriptor.versionType=branch&api-version=${ADO_API_VERSION}`,
+                { priority: true }
             );
             const freshIds = new Map(((treeResp.json.value ?? []) as AdoFile[]).map((f) => [f.path.replace(/^\//, ""), f.objectId]));
             const base0 = state?.remoteObjectIds ?? {};

@@ -3,11 +3,67 @@ import type { RequestUrlResponse } from "obsidian";
 import type OnyxAz from "../main";
 import type { FileStatus, LogEntry, RepoTarget, SyncState, SyncStatus } from "../types";
 import { buildSyncRoot, orgRootFolder } from "../util/syncRoot";
+import { PULL_CONCURRENCY } from "../constants";
 
 export abstract class AdoManager {
     protected cachedState: SyncState | null = null;
 
+    // ── Request gate ──────────────────────────────────────────────────────────
+    // Caps how many ADO HTTP requests are in flight at once. Without this, a
+    // heavy multi-file pull (mapLimit at PULL_CONCURRENCY) saturates the
+    // connection pool and a concurrent push gets buried behind it until it times
+    // out. Two levers protect a push:
+    //   1. Pushes acquire with priority + reserved headroom, so they launch
+    //      immediately instead of waiting in our own queue.
+    //   2. While any push is pending, the normal (pull) cap collapses so we stop
+    //      feeding new downloads — in-flight pulls drain and free the connection
+    //      pool for the push, which then completes quickly.
+    // (In-flight requests can't be cancelled, so the push still waits for the few
+    // downloads already running, but no longer behind a continuously refilled
+    // 16-wide pull.)
+    private static readonly MAX_INFLIGHT = PULL_CONCURRENCY;
+    private static readonly PUSH_RESERVE = 4;
+    private static readonly NORMAL_CAP_WHILE_PUSHING = 2;
+    private inFlight = 0;
+    private priorityPending = 0; // priority requests waiting or in flight
+    private gateQueue: Array<{ priority: boolean; resolve: () => void }> = [];
+
     constructor(protected readonly plugin: OnyxAz) {}
+
+    private capFor(priority: boolean): number {
+        if (priority) return AdoManager.MAX_INFLIGHT + AdoManager.PUSH_RESERVE;
+        return this.priorityPending > 0
+            ? AdoManager.NORMAL_CAP_WHILE_PUSHING
+            : AdoManager.MAX_INFLIGHT;
+    }
+
+    private acquireSlot(priority: boolean): Promise<void> {
+        if (priority) this.priorityPending++;
+        if (this.inFlight < this.capFor(priority)) {
+            this.inFlight++;
+            return Promise.resolve();
+        }
+        return new Promise<void>((resolve) => {
+            const waiter = { priority, resolve };
+            // Priority waiters jump ahead of any normal (pull) waiters.
+            const idx = priority ? this.gateQueue.findIndex((w) => !w.priority) : -1;
+            if (idx === -1) this.gateQueue.push(waiter);
+            else this.gateQueue.splice(idx, 0, waiter);
+        });
+    }
+
+    private releaseSlot(priority: boolean): void {
+        this.inFlight--;
+        if (priority) this.priorityPending--;
+        // Admit as many queued waiters as now fit. Caps can have just changed
+        // (e.g. the last push drained, restoring the normal cap), so loop rather
+        // than admit a single waiter. A normal waiter never uses the push reserve.
+        while (this.gateQueue.length && this.inFlight < this.capFor(this.gateQueue[0].priority)) {
+            const next = this.gateQueue.shift()!;
+            this.inFlight++;
+            next.resolve();
+        }
+    }
 
     abstract testConnection(): Promise<void>;
     abstract getStatus(): Promise<SyncStatus>;
@@ -90,7 +146,7 @@ export abstract class AdoManager {
 
     protected async apiFetch(
         url: string,
-        options: { method?: string; headers?: Record<string, string>; body?: string } = {}
+        options: { method?: string; headers?: Record<string, string>; body?: string; priority?: boolean } = {}
     ): Promise<RequestUrlResponse> {
         const authHeader = await this.resolveAuthHeader();
         const headers: Record<string, string> = {
@@ -98,16 +154,31 @@ export abstract class AdoManager {
             "Content-Type": "application/json",
             ...(options.headers ?? {}),
         };
-        // Race the request against a timeout so a stalled connection fails fast
-        // (rather than hanging the whole sync queue — e.g. when pulling several
-        // projects). requestUrl can't be cancelled, but the timeout lets us move on.
-        const TIMEOUT_MS = 60000;
-        const resp = await Promise.race([
-            requestUrl({ url, method: options.method ?? "GET", headers, body: options.body, throw: false }),
-            new Promise<RequestUrlResponse>((_, reject) =>
-                setTimeout(() => reject(new Error(`Request timed out after ${TIMEOUT_MS / 1000}s. The network may have stalled — try again, or use "OnyxAz: Recover".`)), TIMEOUT_MS)
-            ),
-        ]);
+        // Wait for a slot in the global request gate so a heavy pull can't starve
+        // a push. Pushes pass priority:true and get reserved headroom.
+        const priority = options.priority ?? false;
+        await this.acquireSlot(priority);
+        try {
+            // Race the request against a timeout so a stalled connection fails fast
+            // (rather than hanging the whole sync queue — e.g. when pulling several
+            // projects). requestUrl can't be cancelled, but the timeout lets us move on.
+            const TIMEOUT_MS = 60000;
+            const resp = await Promise.race([
+                requestUrl({ url, method: options.method ?? "GET", headers, body: options.body, throw: false }),
+                new Promise<RequestUrlResponse>((_, reject) =>
+                    setTimeout(() => reject(new Error(`Request timed out after ${TIMEOUT_MS / 1000}s. The network may have stalled — try again, or use "OnyxAz: Recover".`)), TIMEOUT_MS)
+                ),
+            ]);
+            return this.handleResponse(resp);
+        } finally {
+            this.releaseSlot(priority);
+        }
+    }
+
+    // Maps ADO error envelopes / HTTP status codes to friendly errors, or returns
+    // the response unchanged on success. Split out of apiFetch so the gate's
+    // try/finally stays readable.
+    private handleResponse(resp: RequestUrlResponse): RequestUrlResponse {
         if (resp.status >= 400) {
             // Extract the human-readable message from ADO's JSON envelope
             // (shape: { message: "TF401179: ...", typeKey: "...", ... })
