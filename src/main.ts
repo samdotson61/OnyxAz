@@ -423,6 +423,8 @@ export default class OnyxAz extends Plugin {
                 await this.adoManager.pushTarget(t, msg, changes);
                 progress.hide();
                 if (this.settings.notifyOnSuccess) new Notice(`OnyxAz: Pushed ${changes.length} file(s) to ${t.repo} · ${t.branch}.`);
+                this.cachedStatus = null;
+                this.updateCachedStatus().catch(() => {});
                 this.app.workspace.trigger("onyxaz:refresh");
             } catch (e) {
                 progress.hide();
@@ -680,7 +682,17 @@ export default class OnyxAz extends Plugin {
     async updateCachedStatus(): Promise<void> {
         if (!this.isConfigured()) return;
         try {
-            this.cachedStatus = await this.adoManager.getStatus();
+            // In org-mirror mode the Pull/Push buttons act on the repo the active
+            // file belongs to, and that repo keeps its own per-repo state. The
+            // connected-repo tracker never sees mirror pushes, so showing its
+            // count would go stale after a push. Reflect the active repo instead.
+            const t = this.settings.orgMirror ? this.targetFromActiveFile() : null;
+            if (t) {
+                const changed = await this.adoManager.getTargetStatus(t);
+                this.cachedStatus = { changed, conflicted: [], ahead: 0, behind: 0 };
+            } else {
+                this.cachedStatus = await this.adoManager.getStatus();
+            }
             this.app.workspace.trigger("onyxaz:status-changed");
         } catch {
             // ignore on startup
