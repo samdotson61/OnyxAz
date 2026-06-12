@@ -343,7 +343,11 @@ export class AdoApiManager extends AdoManager {
             const remoteChanged = !state || storedObjectId !== remoteFile.objectId;
             if (remoteChanged && state) {
                 const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(this.syncRoot + filePath));
-                if (localExists) conflicts.push(filePath);
+                // Only a conflict if the local content actually differs from the
+                // remote — a just-pushed file matches and must not prompt.
+                if (localExists && !(await this.localMatchesRemote(this.syncRoot + filePath, remoteFile.objectId))) {
+                    conflicts.push(filePath);
+                }
             }
         }
 
@@ -362,8 +366,16 @@ export class AdoApiManager extends AdoManager {
             const storedObjectId = state?.remoteObjectIds[filePath];
             const localExists = await this.plugin.app.vault.adapter.exists(normalizePath(this.syncRoot + filePath));
 
-            if ((!state || storedObjectId !== remoteFile.objectId || !localExists) && !skipPaths.has(filePath)) {
+            if (skipPaths.has(filePath)) continue;
+            if (!localExists) {
                 toDownload.push(filePath);
+            } else if (!state || storedObjectId !== remoteFile.objectId) {
+                // State says it changed — but skip the download if the local file
+                // is already byte-identical to remote (e.g. just pushed, then
+                // re-pulled). Avoids needless re-downloads.
+                if (!(await this.localMatchesRemote(this.syncRoot + filePath, remoteFile.objectId))) {
+                    toDownload.push(filePath);
+                }
             }
         }
 
@@ -663,6 +675,15 @@ export class AdoApiManager extends AdoManager {
         try { return await this.plugin.app.vault.adapter.readBinary(normalizePath(fullPath)); } catch { return null; }
     }
 
+    // True when the local file at fullPath is byte-identical to the remote blob
+    // (an ADO objectId IS the file's git blob SHA). Lets pull skip files that
+    // only look changed in stale state — e.g. a file just pushed, then re-pulled
+    // after a restart — so it doesn't prompt to overwrite identical content.
+    private async localMatchesRemote(fullPath: string, objectId: string): Promise<boolean> {
+        const buf = await this.readBinaryAt(fullPath);
+        return buf !== null && (await gitBlobSha1(buf)) === objectId;
+    }
+
     // Incremental pull of one repo/branch into its mirror folder. Records commit
     // state so subsequent pulls fetch only changes and pushes can be detected.
     async pullTarget(
@@ -704,7 +725,16 @@ export class AdoApiManager extends AdoManager {
             if (!exists) {
                 toDownload.push(rel);
             } else if (!state || state.remoteObjectIds[rel] !== f.objectId) {
-                conflicts.push(rel); // existing file differs from remote
+                // State says it might differ — but the file we just pushed is
+                // byte-identical to what's now on the remote. Compare the actual
+                // local content's git blob SHA (== the ADO objectId) before
+                // treating it as a conflict, so a just-pushed file (or stale
+                // state after a restart) never triggers a spurious overwrite
+                // prompt. State is refreshed to newIds below either way.
+                const buf = await this.readBinaryAt(folder + rel);
+                if (!buf || (await gitBlobSha1(buf)) !== f.objectId) {
+                    conflicts.push(rel); // existing file genuinely differs from remote
+                }
             }
             // else: exists and unchanged → skip (never re-download what's already here)
         }
