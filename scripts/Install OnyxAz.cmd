@@ -123,35 +123,53 @@ if ($src) {
     }
 }
 
-# Look for a setup document on this machine and pre-fill the connection.
+# Look for a setup document and pre-fill the connection (org URL + client ID).
 $autoFilled = $false
 $dataPath = Join-Path $dest "data.json"
 if (-not (Test-Path $dataPath)) {
-    $searchDirs = @(
-        $ScriptDir, (Get-Location).Path,
-        (Join-Path $env:USERPROFILE "Downloads"), (Join-Path $env:USERPROFILE "Desktop"), $env:USERPROFILE
-    )
-    if ($env:OneDrive) { $searchDirs += (Join-Path $env:OneDrive "Downloads"); $searchDirs += (Join-Path $env:OneDrive "Desktop") }
-    $patterns = @("*OnyxAz*Setup*.txt", "*OnyxAz*Setup*.json", "*OnyxAz*Guide*.docx", "*onyxaz*setup*.json")
 
-    foreach ($d in ($searchDirs | Select-Object -Unique)) {
-        if (-not $d -or -not (Test-Path $d)) { continue }
-        foreach ($p in $patterns) {
-            $hit = Get-ChildItem -LiteralPath $d -Filter $p -File -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($hit) {
-                $s = Get-SetupFromFile $hit.FullName
-                if ($s) {
-                    @{ organizationUrl = $s.Org; entraClientId = $s.Client; authMethod = "entra" } |
-                        ConvertTo-Json | Set-Content -LiteralPath $dataPath -Encoding UTF8
-                    Write-Host "`nPre-filled your organization details from:" -ForegroundColor Green
-                    Write-Host "  $($hit.FullName)"
-                    $autoFilled = $true
-                    break
-                }
-            }
+    # Apply the first file that yields both an org URL and a client ID.
+    function Try-Apply($file) {
+        if (-not $file) { return $false }
+        $s = Get-SetupFromFile $file.FullName
+        if ($s) {
+            @{ organizationUrl = $s.Org; entraClientId = $s.Client; authMethod = "entra" } |
+                ConvertTo-Json | Set-Content -LiteralPath $dataPath -Encoding UTF8
+            Write-Host "`nPre-filled your organization details from:" -ForegroundColor Green
+            Write-Host "  $($file.FullName)"
+            return $true
         }
-        if ($autoFilled) { break }
+        return $false
+    }
+
+    # 1) Same folder as the installer wins: scan ANY .txt/.json/.docx beside it,
+    #    newest first, regardless of filename. This is the common case — the
+    #    setup document ships in the distribution folder next to this installer.
+    if ($ScriptDir -and (Test-Path $ScriptDir)) {
+        $local = Get-ChildItem -LiteralPath $ScriptDir -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in @(".txt", ".json", ".docx", ".md") } |
+            Sort-Object LastWriteTime -Descending
+        foreach ($f in $local) { if (Try-Apply $f) { $autoFilled = $true; break } }
+    }
+
+    # 2) Otherwise look in the usual places for a named OnyxAz setup document.
+    if (-not $autoFilled) {
+        $searchDirs = @(
+            (Get-Location).Path,
+            (Join-Path $env:USERPROFILE "Downloads"), (Join-Path $env:USERPROFILE "Desktop"), $env:USERPROFILE
+        )
+        if ($env:OneDrive) { $searchDirs += (Join-Path $env:OneDrive "Downloads"); $searchDirs += (Join-Path $env:OneDrive "Desktop") }
+        $patterns = @("*OnyxAz*Setup*.txt", "*OnyxAz*Setup*.json", "*OnyxAz*Guide*.docx", "*onyxaz*setup*.json")
+
+        foreach ($d in ($searchDirs | Select-Object -Unique)) {
+            if (-not $d -or -not (Test-Path $d)) { continue }
+            foreach ($p in $patterns) {
+                $hit = Get-ChildItem -LiteralPath $d -Filter $p -File -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                if (Try-Apply $hit) { $autoFilled = $true; break }
+            }
+            if ($autoFilled) { break }
+        }
     }
 }
 

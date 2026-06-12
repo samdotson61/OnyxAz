@@ -208,10 +208,10 @@ export class OnboardingModal extends Modal {
             text: "Sign in with your organization account. OnyxAz detects your tenant automatically from your email.",
         });
 
-        // Paste the setup document your IT admin provided to auto-fill the
-        // organization URL and client ID.
+        // Import the setup document your IT admin provided (choose the file or
+        // paste it) to auto-fill the organization URL and client ID.
         const importBtn = contentEl.createEl("button", {
-            text: "📋 Paste setup document to autofill…",
+            text: "📂 Import setup document (choose file or paste)…",
             cls: "onyxaz-import-link",
         });
         importBtn.addEventListener("click", () => {
