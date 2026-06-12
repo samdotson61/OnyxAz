@@ -77,7 +77,7 @@ export class HubModal extends Modal {
 
             this.btn(actions, "Push changes…", "", () => {
                 this.close();
-                this.plugin.promiseQueue.addTask(() => this.plugin.push());
+                this.plugin.pushChanges();
             });
         }
 

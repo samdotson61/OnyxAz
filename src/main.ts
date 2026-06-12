@@ -379,6 +379,29 @@ export default class OnyxAz extends Plugin {
         });
     }
 
+    // Single entry point for the Hub's "Push changes…" button. The connected
+    // repo and every mirrored repo share the same <org>_ADO/<project>/<repo>/
+    // <branch>/ layout, so whichever repo the active file lives in is the one we
+    // push. Only fall back to the connected-repo push() when the active file
+    // isn't under the org root (explicit localSyncPath / vault-root mode), or
+    // when nothing relevant is open.
+    async pushChanges(): Promise<void> {
+        // Org-mirror repos keep per-repo state (.onyxaz/repos/…) and must push
+        // via pushTarget. The connected repo keeps its own sync state and pushes
+        // via push(). Routing a connected-only user through pushTarget would read
+        // empty per-repo state and mark every file as new — so only take the
+        // mirror path when org mirror is actually enabled.
+        if (this.settings.orgMirror) {
+            if (this.targetFromActiveFile()) {
+                await this.pushCurrentRepo();
+            } else {
+                new Notice("OnyxAz: Open a file in the repo you want to push, then click Push changes.", 6000);
+            }
+            return;
+        }
+        await this.push();
+    }
+
     // Commit + push the active file's mirrored repo (with confirmation).
     async pushCurrentRepo(): Promise<void> {
         const t = this.targetFromActiveFile();
