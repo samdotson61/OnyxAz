@@ -48,6 +48,10 @@ export const DEFAULT_IGNORED = [
 export const ADO_API_VERSION = "7.1";
 export const EMPTY_REPO_SHA = "0000000000000000000000000000000000000000";
 
+// How many files download concurrently during a pull. Higher = faster on big
+// repos, but watch for ADO 429 throttling if pushed much further.
+export const PULL_CONCURRENCY = 16;
+
 // Microsoft Entra / Azure AD
 export const ENTRA_ADO_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798";
 export const ENTRA_SCOPE = `${ENTRA_ADO_RESOURCE}/.default offline_access`;

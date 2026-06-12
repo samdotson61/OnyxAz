@@ -1,6 +1,6 @@
 import { normalizePath, Notice, TFile } from "obsidian";
 import { AdoManager } from "./adoManager";
-import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, IGNORE_FILE_PATH, STATE_FILE_PATH } from "../constants";
+import { ADO_API_VERSION, DEFAULT_IGNORED, EMPTY_REPO_SHA, IGNORE_FILE_PATH, PULL_CONCURRENCY, STATE_FILE_PATH } from "../constants";
 import type { AdoFile, FileStatus, LogEntry, RepoTarget, SyncState, SyncStatus } from "../types";
 import type OnyxAz from "../main";
 import { gitBlobSha1 } from "../util/hash";
@@ -352,7 +352,7 @@ export class AdoApiManager extends AdoManager {
         let filesChanged = 0;
         const total = toDownload.length;
         if (onProgress) onProgress(0, total);
-        await mapLimit(toDownload, 8, async (filePath) => {
+        await mapLimit(toDownload, PULL_CONCURRENCY, async (filePath) => {
             const buffer = await this.getFileContent(filePath.startsWith("/") ? filePath : `/${filePath}`);
             await this.writeLocalFile(filePath, buffer);
             filesChanged++;
@@ -701,7 +701,7 @@ export class AdoApiManager extends AdoManager {
         // since they still don't exist on device.
         let n = 0;
         let failed = 0;
-        await mapLimit(toDownload, 8, async (rel) => {
+        await mapLimit(toDownload, PULL_CONCURRENCY, async (rel) => {
             try {
                 const resp = await this.apiFetch(
                     `${base}/items?path=${encodeURIComponent("/" + rel)}` +
