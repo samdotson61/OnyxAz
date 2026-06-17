@@ -1,9 +1,10 @@
-import { requestUrl } from "obsidian";
+import { Notice, requestUrl } from "obsidian";
 import type { RequestUrlResponse } from "obsidian";
 import type OnyxAz from "../main";
 import type { FileStatus, LogEntry, RepoTarget, SyncState, SyncStatus } from "../types";
 import { buildSyncRoot, orgRootFolder } from "../util/syncRoot";
 import { PULL_CONCURRENCY } from "../constants";
+import { AdaptiveLimit, parseRetryAfter, backoffDelayMs } from "../util/backoff";
 
 export abstract class AdoManager {
     protected cachedState: SyncState | null = null;
@@ -27,14 +28,18 @@ export abstract class AdoManager {
     private inFlight = 0;
     private priorityPending = 0; // priority requests waiting or in flight
     private gateQueue: Array<{ priority: boolean; resolve: () => void }> = [];
+    // Dynamic ceiling: shrinks when ADO rate-limits (429/503), recovers on
+    // sustained success. The gate admits at most `limit.current` normal requests.
+    private limit = new AdaptiveLimit(AdoManager.MAX_INFLIGHT);
+    private throttleNoticeAt = 0;
 
     constructor(protected readonly plugin: OnyxAz) {}
 
     private capFor(priority: boolean): number {
-        if (priority) return AdoManager.MAX_INFLIGHT + AdoManager.PUSH_RESERVE;
+        if (priority) return this.limit.current + AdoManager.PUSH_RESERVE;
         return this.priorityPending > 0
             ? AdoManager.NORMAL_CAP_WHILE_PUSHING
-            : AdoManager.MAX_INFLIGHT;
+            : this.limit.current;
     }
 
     private acquireSlot(priority: boolean): Promise<void> {
@@ -157,23 +162,51 @@ export abstract class AdoManager {
         // Wait for a slot in the global request gate so a heavy pull can't starve
         // a push. Pushes pass priority:true and get reserved headroom.
         const priority = options.priority ?? false;
+        // The 60s default suits small control/JSON requests; large binary
+        // downloads pass a longer timeoutMs for the multi-MB transfer.
+        const TIMEOUT_MS = options.timeoutMs ?? 60000;
+        const MAX_THROTTLE_RETRIES = 5;
         await this.acquireSlot(priority);
         try {
-            // Race the request against a timeout so a stalled connection fails fast
-            // (rather than hanging the whole sync queue — e.g. when pulling several
-            // projects). requestUrl can't be cancelled, but the timeout lets us move on.
-            // Large binary downloads pass a longer timeoutMs — the 60s default is
-            // tuned for small control/JSON requests, not multi-MB transfers.
-            const TIMEOUT_MS = options.timeoutMs ?? 60000;
-            const resp = await Promise.race([
-                requestUrl({ url, method: options.method ?? "GET", headers, body: options.body, throw: false }),
-                new Promise<RequestUrlResponse>((_, reject) =>
-                    setTimeout(() => reject(new Error(`Request timed out after ${TIMEOUT_MS / 1000}s. The network may have stalled — try again, or use "OnyxAz: Recover".`)), TIMEOUT_MS)
-                ),
-            ]);
-            return this.handleResponse(resp);
+            for (let attempt = 0; ; attempt++) {
+                // Race each attempt against a timeout so a stalled connection fails
+                // fast rather than hanging the whole sync queue. requestUrl can't be
+                // cancelled, but the timeout lets us move on. The gate slot is held
+                // across retries, so backing off naturally reduces in-flight load.
+                const resp = await Promise.race([
+                    requestUrl({ url, method: options.method ?? "GET", headers, body: options.body, throw: false }),
+                    new Promise<RequestUrlResponse>((_, reject) =>
+                        setTimeout(() => reject(new Error(`Request timed out after ${TIMEOUT_MS / 1000}s. The network may have stalled — try again, or use "OnyxAz: Recover".`)), TIMEOUT_MS)
+                    ),
+                ]);
+
+                // Rate-limited (429) or temporarily unavailable (503): shrink the
+                // concurrency ceiling, wait (honoring Retry-After), and retry.
+                if ((resp.status === 429 || resp.status === 503) && attempt < MAX_THROTTLE_RETRIES) {
+                    this.limit.onThrottle();
+                    this.notifyThrottleOnce();
+                    const header = resp.headers?.["retry-after"] ?? resp.headers?.["Retry-After"];
+                    const waitMs = parseRetryAfter(header, Date.now()) ?? backoffDelayMs(attempt);
+                    await new Promise((r) => setTimeout(r, waitMs));
+                    continue;
+                }
+
+                if (resp.status < 400) this.limit.onSuccess();
+                return this.handleResponse(resp);
+            }
         } finally {
             this.releaseSlot(priority);
+        }
+    }
+
+    // Surfaces a single, coalesced notice when ADO starts rate-limiting, so the
+    // automatic slow-down isn't a mystery. Suppressed for 30s after each, to
+    // avoid spamming during a throttling burst.
+    private notifyThrottleOnce(): void {
+        const now = Date.now();
+        if (now - this.throttleNoticeAt > 30000) {
+            this.throttleNoticeAt = now;
+            new Notice("OnyxAz: Azure DevOps is rate-limiting — slowing down and retrying automatically.", 6000);
         }
     }
 
