@@ -509,10 +509,17 @@ export default class OnyxAz extends Plugin {
         await this.push();
     }
 
-    // Commit + push the active file's mirrored repo (with confirmation).
+    // Commit + push the mirrored repo the active file belongs to (with confirmation).
     async pushCurrentRepo(): Promise<void> {
         const t = this.targetFromActiveFile();
         if (!t) { new Notice("OnyxAz: Open a file inside a mirrored repo first."); return; }
+        await this.pushRepo(t);
+    }
+
+    // Commit + push ALL local changes in one specific mirrored repo/branch, with
+    // confirmation. Used by the active-file push and by the Tracked Repositories
+    // panel's per-repo Push, so "Push changes" always targets a clear repo branch.
+    async pushRepo(t: RepoTarget): Promise<void> {
         let changes: FileStatus[];
         try {
             changes = await this.adoManager.getTargetStatus(t);
@@ -520,7 +527,7 @@ export default class OnyxAz extends Plugin {
             this.displayError(e);
             return;
         }
-        if (changes.length === 0) { new Notice(`OnyxAz: No local changes in ${t.repo}.`); return; }
+        if (changes.length === 0) { new Notice(`OnyxAz: No local changes in ${t.repo} · ${t.branch}.`); return; }
         const message = this.adoManager.buildCommitMessage(changes.length);
         new ConfirmPushModal(this.app, this, changes, message, async (msg) => {
             // Run the push directly (NOT via the pull queue) so a long/queued pull

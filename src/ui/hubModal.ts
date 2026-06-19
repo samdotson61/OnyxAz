@@ -164,6 +164,9 @@ export class HubModal extends Modal {
                 const pull = btns.createEl("button", { text: "Pull" });
                 pull.addClass("onyxaz-hub-btn");
                 pull.addEventListener("click", () => { this.close(); this.plugin.pullTargets([t], false); });
+                const push = btns.createEl("button", { text: "Push" });
+                push.addClass("onyxaz-hub-btn");
+                push.addEventListener("click", () => { this.close(); this.plugin.pushRepo(t); });
                 const remove = btns.createEl("button", { text: "Remove" });
                 remove.addClass("onyxaz-hub-btn");
                 remove.addEventListener("click", async () => { await this.plugin.untrackRepo(t); this.render(); });
