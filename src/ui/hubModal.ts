@@ -141,6 +141,52 @@ export class HubModal extends Modal {
             });
             link.setAttr("target", "_blank");
         }
+
+        // ── Tracked repositories (curated multi-repo set) ──────────────────────
+        if (configured && s.trackedRepos.length > 0) {
+            const sec = contentEl.createDiv({ cls: "onyxaz-hub-tracked" });
+            const head = sec.createDiv({ cls: "onyxaz-hub-tracked-head" });
+            head.createEl("div", {
+                text: `Tracked repositories (${s.trackedRepos.length})`,
+                cls: "onyxaz-hub-label",
+            });
+            const pullAll = head.createEl("button", { text: "Pull all" });
+            pullAll.addClass("onyxaz-hub-btn");
+            pullAll.addEventListener("click", () => { this.close(); this.plugin.pullAllTracked(); });
+
+            for (const t of s.trackedRepos) {
+                const row = sec.createDiv({ cls: "onyxaz-tracked-row" });
+                const info = row.createDiv({ cls: "onyxaz-tracked-info" });
+                info.createEl("div", { text: `${t.project} / ${t.repo} · ${t.branch}`, cls: "onyxaz-tracked-name" });
+                const meta = info.createEl("div", { text: "checking…", cls: "onyxaz-hub-meta onyxaz-tracked-meta" });
+
+                const btns = row.createDiv({ cls: "onyxaz-tracked-btns" });
+                const pull = btns.createEl("button", { text: "Pull" });
+                pull.addClass("onyxaz-hub-btn");
+                pull.addEventListener("click", () => { this.close(); this.plugin.pullTargets([t], false); });
+                const remove = btns.createEl("button", { text: "Remove" });
+                remove.addClass("onyxaz-hub-btn");
+                remove.addEventListener("click", async () => { await this.plugin.untrackRepo(t); this.render(); });
+
+                // Last-sync + pending count are computed in the background so the
+                // panel renders instantly even with many tracked repos.
+                this.fillTrackedMeta(t, meta);
+            }
+        }
+    }
+
+    // Fills a tracked-repo row's meta line: last sync (cheap, from state) then a
+    // pending-changes count (a local scan, appended once it resolves).
+    private async fillTrackedMeta(t: { project: string; repo: string; branch: string }, el: HTMLElement): Promise<void> {
+        try {
+            const last = await this.plugin.adoManager.targetLastSync(t);
+            const base = last ? `synced ${moment(last).fromNow()}` : "not pulled yet";
+            el.setText(base);
+            const changed = await this.plugin.adoManager.getTargetStatus(t);
+            if (changed.length > 0) el.setText(`${base} · ${changed.length} local change${changed.length !== 1 ? "s" : ""}`);
+        } catch {
+            /* leave the placeholder */
+        }
     }
 
     private btn(

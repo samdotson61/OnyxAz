@@ -109,6 +109,7 @@ export abstract class AdoManager {
     ): Promise<number>;
     abstract getTargetStatus(t: RepoTarget): Promise<FileStatus[]>;
     abstract pushTarget(t: RepoTarget, message: string, changes: FileStatus[]): Promise<void>;
+    abstract targetLastSync(t: RepoTarget): Promise<number | null>;
 
     getCachedState(): SyncState | null {
         return this.cachedState;

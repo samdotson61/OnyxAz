@@ -6,6 +6,7 @@ import type OnyxAz from "../main";
 import { gitBlobSha1 } from "../util/hash";
 import { matchesIgnore, parseIgnoreFile } from "../util/ignore";
 import { isDocumentPath, parseExtensions, DEFAULT_DOCUMENT_EXTENSIONS } from "../util/docFilter";
+import { looksBinary, toLf, toCrlf } from "../util/eol";
 import { buildSyncRoot } from "../util/syncRoot";
 import { mapLimit } from "../util/concurrency";
 
@@ -657,6 +658,13 @@ export class AdoApiManager extends AdoManager {
         await adapter.write(this.targetStatePath(t), JSON.stringify(state, null, 2));
     }
 
+    // Last time this target was successfully pulled, or null if never. Used by
+    // the Hub's Tracked Repositories panel.
+    async targetLastSync(t: RepoTarget): Promise<number | null> {
+        const state = await this.readTargetState(t);
+        return state?.lastSyncTime ?? null;
+    }
+
     private async targetCommitId(t: RepoTarget, priority = false): Promise<string> {
         try {
             const resp = await this.apiFetch(
@@ -681,7 +689,23 @@ export class AdoApiManager extends AdoManager {
     // after a restart — so it doesn't prompt to overwrite identical content.
     private async localMatchesRemote(fullPath: string, objectId: string): Promise<boolean> {
         const buf = await this.readBinaryAt(fullPath);
-        return buf !== null && (await gitBlobSha1(buf)) === objectId;
+        return buf !== null && (await this.contentMatchesObjectId(buf, objectId));
+    }
+
+    // True when `buf` equals the remote blob `objectId` (the file's git blob SHA),
+    // tolerating a CRLF-vs-LF-only difference for text files. The fast path is the
+    // raw SHA; only when that misses (and the content is text) do we re-hash the
+    // LF- and CRLF-normalized forms. This keeps a line-ending-only difference from
+    // surfacing as a spurious conflict / overwrite prompt.
+    private async contentMatchesObjectId(buf: ArrayBuffer, objectId: string): Promise<boolean> {
+        if ((await gitBlobSha1(buf)) === objectId) return true;
+        const bytes = new Uint8Array(buf);
+        if (looksBinary(bytes)) return false;
+        for (const variant of [toLf(bytes), toCrlf(bytes)]) {
+            const copy = variant.slice(); // exact-length buffer for hashing
+            if ((await gitBlobSha1(copy.buffer)) === objectId) return true;
+        }
+        return false;
     }
 
     // Incremental pull of one repo/branch into its mirror folder. Records commit
@@ -733,7 +757,7 @@ export class AdoApiManager extends AdoManager {
                 // state after a restart) never triggers a spurious overwrite
                 // prompt. State is refreshed to newIds below either way.
                 const buf = await this.readBinaryAt(folder + rel);
-                if (!buf || (await gitBlobSha1(buf)) !== f.objectId) {
+                if (!buf || !(await this.contentMatchesObjectId(buf, f.objectId))) {
                     conflicts.push(rel); // existing file genuinely differs from remote
                 }
             }

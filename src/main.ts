@@ -2,7 +2,7 @@ import { Notice, Plugin, addIcon, normalizePath, requestUrl } from "obsidian";
 import { DEFAULT_SETTINGS, ONYXAZ_REPO_RAW, REPO_PULL_CONCURRENCY } from "./constants";
 import { compareVersions } from "./util/version";
 import { mapLimit } from "./util/concurrency";
-import { mergeTargets } from "./util/targets";
+import { mergeTargets, targetKey } from "./util/targets";
 import type { FileStatus, OnyxAzSettings, RepoTarget, SyncStatus } from "./types";
 import { CurrentAdoAction } from "./types";
 import { AdoApiManager } from "./adoManager/adoApiManager";
@@ -440,6 +440,23 @@ export default class OnyxAz extends Plugin {
                 this.setState(CurrentAdoAction.idle);
             }
         });
+    }
+
+    // Pull every repo in the tracked set (no re-persist; they're already saved).
+    pullAllTracked(): void {
+        if (this.settings.trackedRepos.length === 0) {
+            new Notice("OnyxAz: No tracked repositories yet — use “Pull selected” first.");
+            return;
+        }
+        this.pullTargets(this.settings.trackedRepos, false);
+    }
+
+    // Stop tracking a repo/branch. Leaves its already-pulled files in the vault —
+    // this only removes it from the startup-refresh set.
+    async untrackRepo(t: RepoTarget): Promise<void> {
+        const key = targetKey(t);
+        this.settings.trackedRepos = this.settings.trackedRepos.filter((x) => targetKey(x) !== key);
+        await this.saveSettings();
     }
 
     // Pull the mirrored repo that the active file belongs to (incremental).

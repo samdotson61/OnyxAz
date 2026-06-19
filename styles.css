@@ -387,3 +387,49 @@
     color: var(--text-normal);
     background: var(--background-modifier-hover);
 }
+
+/* Tracked repositories panel (Hub) */
+.onyxaz-hub-tracked {
+    margin-top: 14px;
+    border-top: 1px solid var(--background-modifier-border);
+    padding-top: 10px;
+}
+.onyxaz-hub-tracked-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.onyxaz-hub-tracked-head .onyxaz-hub-btn {
+    width: auto;
+}
+.onyxaz-tracked-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px solid var(--background-modifier-border-hover);
+}
+.onyxaz-tracked-info {
+    min-width: 0;
+    flex: 1;
+}
+.onyxaz-tracked-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.onyxaz-tracked-meta {
+    font-size: var(--font-smaller);
+}
+.onyxaz-tracked-btns {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+.onyxaz-tracked-btns .onyxaz-hub-btn {
+    width: auto;
+}
