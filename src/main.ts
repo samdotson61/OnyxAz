@@ -1,6 +1,8 @@
 import { Notice, Plugin, addIcon, normalizePath, requestUrl } from "obsidian";
-import { DEFAULT_SETTINGS, ONYXAZ_REPO_RAW } from "./constants";
+import { DEFAULT_SETTINGS, ONYXAZ_REPO_RAW, REPO_PULL_CONCURRENCY } from "./constants";
 import { compareVersions } from "./util/version";
+import { mapLimit } from "./util/concurrency";
+import { mergeTargets } from "./util/targets";
 import type { FileStatus, OnyxAzSettings, RepoTarget, SyncStatus } from "./types";
 import { CurrentAdoAction } from "./types";
 import { AdoApiManager } from "./adoManager/adoApiManager";
@@ -91,6 +93,12 @@ export default class OnyxAz extends Plugin {
                         } catch { /* skip */ }
                     }
                 }).catch(() => {});
+            }
+            // Refresh the curated multi-repo set on launch (independent of the full
+            // org mirror), so "Pull selected" repos stay current — like a git client
+            // fetching your cloned repos on open. persist:false — already saved.
+            if (this.settings.trackedRepos.length > 0 && this.isConfigured()) {
+                this.pullTargets(this.settings.trackedRepos, false).catch(() => {});
             }
             // Quietly check GitHub for a newer plugin build, if enabled.
             if (this.settings.autoUpdate) {
@@ -376,6 +384,54 @@ export default class OnyxAz extends Plugin {
                         : `OnyxAz: ${repo} · ${branch} is up to date.`,
                     6000
                 );
+                this.app.workspace.trigger("onyxaz:refresh");
+            } catch (e) {
+                progress.hide();
+                this.displayError(e);
+            } finally {
+                this.setState(CurrentAdoAction.idle);
+            }
+        });
+    }
+
+    // Bulk-pull a curated set of repos/branches in one action and (when persist)
+    // remember them so they refresh on startup. Add-only: existing files that
+    // differ from the remote are left untouched (reported as "left unchanged"),
+    // never clobbered — use a single-repo Pull to resolve those. The global
+    // request gate bounds total in-flight HTTP, so a few repos run concurrently.
+    async pullTargets(targets: RepoTarget[], persist = true): Promise<void> {
+        if (targets.length === 0) return;
+        if (persist) {
+            this.settings.trackedRepos = mergeTargets(this.settings.trackedRepos, targets);
+            await this.saveSettings();
+        }
+        const total = targets.length;
+        const progress = new Notice(`OnyxAz: Pulling ${total} repo(s)…`, 0);
+        this.promiseQueue.addTask(async () => {
+            this.setState(CurrentAdoAction.pull);
+            let done = 0, files = 0, skipped = 0, failed = 0;
+            const tick = () =>
+                progress.setMessage(`OnyxAz: Pulling ${total} repo(s) — ${done}/${total} done · ${files} file(s)…`);
+            try {
+                await mapLimit(targets, REPO_PULL_CONCURRENCY, async (t) => {
+                    try {
+                        // No conflict resolver → add-only; onSkipped reports files left local.
+                        const n = await this.retry(() => this.adoManager.pullTarget(
+                            t, () => { tick(); }, undefined, (s) => { skipped += s; }
+                        ));
+                        files += n;
+                        this.hydratedProjects.add(t.project);
+                    } catch {
+                        failed++;
+                    } finally {
+                        done++; tick();
+                    }
+                });
+                progress.hide();
+                let msg = `OnyxAz: Pulled ${files} file(s) across ${total - failed} repo(s).`;
+                if (skipped > 0) msg += ` ${skipped} existing file(s) left unchanged (local differs — use Pull on that repo to update).`;
+                if (failed > 0) msg += ` ${failed} repo(s) failed — run again.`;
+                new Notice(msg, 9000);
                 this.app.workspace.trigger("onyxaz:refresh");
             } catch (e) {
                 progress.hide();

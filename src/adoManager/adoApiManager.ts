@@ -689,7 +689,8 @@ export class AdoApiManager extends AdoManager {
     async pullTarget(
         t: RepoTarget,
         onFile?: () => void,
-        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>
+        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>,
+        onSkipped?: (count: number) => void
     ): Promise<number> {
         await this.loadIgnorePatterns();
         const folder = this.getTargetFolder(t);
@@ -740,10 +741,19 @@ export class AdoApiManager extends AdoManager {
         }
 
         // Existing files are only overwritten with explicit consent (a resolver).
-        // Background/project pulls pass none, so they never clobber local files.
-        if (conflicts.length > 0 && resolveConflicts) {
-            const keep = await resolveConflicts(conflicts);
-            for (const rel of conflicts) if (!keep.has(rel)) toDownload.push(rel);
+        // Background/project/bulk pulls pass none, so they never clobber local
+        // edits — those conflicts are reported via onSkipped instead.
+        let skippedConflicts = 0;
+        if (conflicts.length > 0) {
+            if (resolveConflicts) {
+                const keep = await resolveConflicts(conflicts);
+                for (const rel of conflicts) {
+                    if (keep.has(rel)) skippedConflicts++;
+                    else toDownload.push(rel);
+                }
+            } else {
+                skippedConflicts = conflicts.length; // add-only: leave local files untouched
+            }
         }
 
         // Downloads tolerate per-file failures: one stalled/large file must not
@@ -798,6 +808,7 @@ export class AdoApiManager extends AdoManager {
                 10000
             );
         }
+        if (onSkipped && skippedConflicts > 0) onSkipped(skippedConflicts);
         return n;
     }
 

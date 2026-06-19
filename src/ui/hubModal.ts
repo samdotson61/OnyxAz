@@ -81,27 +81,36 @@ export class HubModal extends Modal {
             });
         }
 
-        this.btn(actions, configured ? "Switch repository…" : "Connect to repository…", "", () => {
-            new RepoTreeModal(this.app, this.plugin, async (project, repo, branch) => {
-                // In org-mirror mode the connected repo is vestigial — selecting a
-                // branch should bring that branch down into its own mirror folder
-                // (so non-default branches, which aren't auto-pulled at startup,
-                // become accessible) rather than swapping the single connection.
-                if (this.plugin.settings.orgMirror) {
+        this.btn(actions, configured ? "Switch / pull repositories…" : "Connect to repository…", "", () => {
+            new RepoTreeModal(
+                this.app,
+                this.plugin,
+                async (project, repo, branch) => {
+                    // In org-mirror mode the connected repo is vestigial — selecting a
+                    // branch should bring that branch down into its own mirror folder
+                    // (so non-default branches, which aren't auto-pulled at startup,
+                    // become accessible) rather than swapping the single connection.
+                    if (this.plugin.settings.orgMirror) {
+                        this.close();
+                        this.plugin.openMirrorBranch(project, repo, branch);
+                        return;
+                    }
+                    // Clear explicit override so the new repo gets its auto folder
+                    this.plugin.settings.localSyncPath = "";
+                    this.plugin.settings.project = project;
+                    this.plugin.settings.repository = repo;
+                    this.plugin.settings.branch = branch;
+                    await this.plugin.saveSettings();
+                    await this.plugin.resetConnection();
+                    new Notice(`OnyxAz: Switched to ${project} / ${repo} · ${branch}`, 5000);
+                    this.render();
+                },
+                // Bulk: pull every ticked repo/branch and track them for startup refresh.
+                (targets) => {
                     this.close();
-                    this.plugin.openMirrorBranch(project, repo, branch);
-                    return;
+                    return this.plugin.pullTargets(targets);
                 }
-                // Clear explicit override so the new repo gets its auto folder
-                this.plugin.settings.localSyncPath = "";
-                this.plugin.settings.project = project;
-                this.plugin.settings.repository = repo;
-                this.plugin.settings.branch = branch;
-                await this.plugin.saveSettings();
-                await this.plugin.resetConnection();
-                new Notice(`OnyxAz: Switched to ${project} / ${repo} · ${branch}`, 5000);
-                this.render();
-            }).open();
+            ).open();
         });
 
         if (configured) {

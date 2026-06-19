@@ -85,6 +85,7 @@ export abstract class AdoManager {
     abstract switchBranch(branch: string): Promise<void>;
     abstract listProjects(): Promise<string[]>;
     abstract listRepositories(project: string): Promise<string[]>;
+    abstract listRepositoriesDetailed(project: string): Promise<{ name: string; branch: string }[]>;
     abstract getSyncState(): Promise<SyncState | null>;
     abstract saveSyncState(state: SyncState): Promise<void>;
 
@@ -103,7 +104,8 @@ export abstract class AdoManager {
     abstract pullTarget(
         t: RepoTarget,
         onFile?: () => void,
-        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>
+        resolveConflicts?: (conflicts: string[]) => Promise<Set<string>>,
+        onSkipped?: (count: number) => void
     ): Promise<number>;
     abstract getTargetStatus(t: RepoTarget): Promise<FileStatus[]>;
     abstract pushTarget(t: RepoTarget, message: string, changes: FileStatus[]): Promise<void>;

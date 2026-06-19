@@ -37,6 +37,7 @@ export const DEFAULT_SETTINGS: OnyxAzSettings = {
     largeFileTimeoutSec: 300,
     documentsOnly: true,
     documentExtensions: DEFAULT_DOCUMENT_EXTENSIONS.join(", "),
+    trackedRepos: [],
 };
 
 // Raw GitHub base for self-update (must match where releases are published).
@@ -59,6 +60,11 @@ export const PULL_CONCURRENCY = 16;
 // Concurrency for the retry pass over files that failed the wide first pass —
 // kept low so each large/slow file gets nearly the full connection to itself.
 export const RETRY_CONCURRENCY = 2;
+
+// How many repos a bulk "Pull selected" pulls at once. Kept small; the global
+// request gate still caps total in-flight HTTP, so this just bounds how many
+// repos' trees/state are processed concurrently.
+export const REPO_PULL_CONCURRENCY = 3;
 
 // Microsoft Entra / Azure AD
 export const ENTRA_ADO_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798";

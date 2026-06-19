@@ -48,6 +48,9 @@ export interface OnyxAzSettings {
     // binaries, and build artifacts in a repo are skipped entirely.
     documentsOnly: boolean;
     documentExtensions: string; // comma/space-separated extension allowlist
+    // A curated set of repos/branches pulled together via "Pull selected" and
+    // refreshed on startup — independent of the full org-mirror scaffold.
+    trackedRepos: RepoTarget[];
 }
 
 export interface FileStatus {
