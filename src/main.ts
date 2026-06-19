@@ -493,19 +493,10 @@ export default class OnyxAz extends Plugin {
     // isn't under the org root (explicit localSyncPath / vault-root mode), or
     // when nothing relevant is open.
     async pushChanges(): Promise<void> {
-        // Org-mirror repos keep per-repo state (.onyxaz/repos/…) and must push
-        // via pushTarget. The connected repo keeps its own sync state and pushes
-        // via push(). Routing a connected-only user through pushTarget would read
-        // empty per-repo state and mark every file as new — so only take the
-        // mirror path when org mirror is actually enabled.
-        if (this.settings.orgMirror) {
-            if (this.targetFromActiveFile()) {
-                await this.pushCurrentRepo();
-            } else {
-                new Notice("OnyxAz: Open a file in the repo you want to push, then click Push changes.", 6000);
-            }
-            return;
-        }
+        // The Hub's "Push changes" acts on the connected (connection-card) repo —
+        // it pushes all of that repo's local changes, with confirmation. To push a
+        // different mirrored repo, use its Push button in the Tracked Repositories
+        // panel (or the "Push current repo" command for the active file's repo).
         await this.push();
     }
 
@@ -796,17 +787,11 @@ export default class OnyxAz extends Plugin {
     async updateCachedStatus(): Promise<void> {
         if (!this.isConfigured()) return;
         try {
-            // In org-mirror mode the Pull/Push buttons act on the repo the active
-            // file belongs to, and that repo keeps its own per-repo state. The
-            // connected-repo tracker never sees mirror pushes, so showing its
-            // count would go stale after a push. Reflect the active repo instead.
-            const t = this.settings.orgMirror ? this.targetFromActiveFile() : null;
-            if (t) {
-                const changed = await this.adoManager.getTargetStatus(t);
-                this.cachedStatus = { changed, conflicted: [], ahead: 0, behind: 0 };
-            } else {
-                this.cachedStatus = await this.adoManager.getStatus();
-            }
+            // The Hub's connection card and pending count reflect the connected
+            // (connection-card) repo — the same repo "Push changes" acts on, so
+            // card, count, and button stay consistent. Mirrored repos show their
+            // own pending count per row in the Tracked Repositories panel.
+            this.cachedStatus = await this.adoManager.getStatus();
             this.app.workspace.trigger("onyxaz:status-changed");
         } catch {
             // ignore on startup
