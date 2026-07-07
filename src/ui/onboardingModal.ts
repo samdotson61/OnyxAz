@@ -29,6 +29,7 @@ export class OnboardingModal extends Modal {
 
     onClose(): void {
         this.plugin.entraAuth.cancelPoll();
+        this.plugin.entraAuth.cancelInteractive();
         this.contentEl.empty();
     }
 
@@ -239,49 +240,76 @@ export class OnboardingModal extends Modal {
                     .onChange((v) => { clientId = v.trim(); })
             );
 
+        // Validates the form, saves the client ID, and detects the tenant from
+        // the email domain. Shared by both sign-in paths below.
+        const prepare = async (): Promise<boolean> => {
+            if (!this.signinEmail || !this.signinEmail.includes("@")) {
+                new Notice("Enter your organization email address.");
+                return false;
+            }
+            if (!clientId) {
+                new Notice("Enter your Azure client ID — ask your admin, or paste your setup document.", 8000);
+                return false;
+            }
+            this.plugin.settings.entraClientId = clientId;
+            const tenant = await this.plugin.entraAuth.discoverTenantFromEmail(this.signinEmail);
+            this.plugin.settings.entraTenantId = tenant;
+            await this.plugin.saveSettings();
+            return true;
+        };
+
         this.navButtons(contentEl, {
             back: { label: "← Back", onClick: () => { this.step = "welcome"; this.render(); } },
             next: {
                 label: "Sign in with Microsoft",
                 cta: true,
                 onClick: async (btn) => {
-                    if (!this.signinEmail || !this.signinEmail.includes("@")) {
-                        new Notice("Enter your organization email address.");
-                        return;
-                    }
-                    if (!clientId) {
-                        new Notice("Enter your Azure client ID — ask your admin, or paste your setup document.", 8000);
-                        return;
-                    }
                     btn.textContent = "Detecting your organization…";
                     btn.disabled = true;
                     try {
-                        // Save the client ID and auto-detect the tenant from the email domain.
-                        this.plugin.settings.entraClientId = clientId;
-                        const tenant = await this.plugin.entraAuth.discoverTenantFromEmail(this.signinEmail);
-                        this.plugin.settings.entraTenantId = tenant;
-                        await this.plugin.saveSettings();
-
-                        btn.textContent = "Starting sign-in…";
-                        const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
-                        this.deviceCode = dcr;
-                        this.authFlowActive = true;
-                        this.render();
-
-                        await this.plugin.entraAuth.pollForToken(dcr);
-
-                        this.authFlowActive = false;
-                        this.deviceCode = null;
+                        if (!(await prepare())) { this.render(); return; }
+                        // Interactive browser sign-in: carries the device identity
+                        // (PRT), so "require compliant device" Conditional Access
+                        // policies pass on managed machines.
+                        btn.textContent = "Waiting for browser sign-in…";
+                        await this.plugin.entraAuth.signInInteractive();
                         this.step = "browse";
                         this.render();
                     } catch (e) {
-                        this.authFlowActive = false;
-                        this.deviceCode = null;
                         this.render();
-                        new Notice(`OnyxAz: Sign-in failed — ${(e as Error).message}`);
+                        new Notice(`OnyxAz: Sign-in failed — ${(e as Error).message}`, 10000);
                     }
                 },
             },
+        });
+
+        // Fallback for environments where the browser hand-off can't complete.
+        // Note: device-code sign-ins carry no device identity, so tenants that
+        // require a compliant device will block them.
+        const fallback = contentEl.createEl("button", {
+            text: "Browser sign-in not working? Use a code instead",
+            cls: "onyxaz-import-link",
+        });
+        fallback.addEventListener("click", async () => {
+            try {
+                if (!(await prepare())) return;
+                const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
+                this.deviceCode = dcr;
+                this.authFlowActive = true;
+                this.render();
+
+                await this.plugin.entraAuth.pollForToken(dcr);
+
+                this.authFlowActive = false;
+                this.deviceCode = null;
+                this.step = "browse";
+                this.render();
+            } catch (e) {
+                this.authFlowActive = false;
+                this.deviceCode = null;
+                this.render();
+                new Notice(`OnyxAz: Sign-in failed — ${(e as Error).message}`, 10000);
+            }
         });
     }
 

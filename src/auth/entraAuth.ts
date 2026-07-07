@@ -1,4 +1,5 @@
 import { requestUrl } from "obsidian";
+import type { Server, IncomingMessage, ServerResponse } from "http";
 import {
     ENTRA_DEVICE_CODE_URL,
     ENTRA_SCOPE,
@@ -8,6 +9,7 @@ import {
 } from "../constants";
 import type OnyxAz from "../main";
 import { parseTenantFromIssuer } from "../util/tenant";
+import { buildAuthorizeUrl, pkceChallenge, randomUrlSafe } from "../util/pkce";
 
 export interface DeviceCodeResponse {
     device_code: string;
@@ -68,7 +70,133 @@ export class EntraAuth {
         return "organizations"; // works for any work/school account
     }
 
-    // ── Sign-in flow ──────────────────────────────────────────────────────────
+    // ── Interactive sign-in (authorization code + PKCE, system browser) ───────
+    // Opens the user's default browser for sign-in and catches the redirect on a
+    // local loopback listener. Because the sign-in happens in the real browser
+    // (with the Windows SSO broker / PRT), device-based Conditional Access
+    // policies — "require compliant/managed device" — are satisfied on managed
+    // machines, which the device-code flow structurally cannot do (AADSTS530033).
+    // Requires the app registration to list http://localhost as a redirect URI
+    // under "Mobile and desktop applications". Falls back to device code via the
+    // separate startDeviceCodeFlow/pollForToken path.
+
+    private interactiveServer: Server | null = null;
+    private interactiveCancel: (() => void) | null = null;
+    private interactiveRedirectUri = "";
+
+    async signInInteractive(): Promise<void> {
+        if (!this.clientId) {
+            throw new Error(
+                "No Azure App Client ID configured. Enter it in Settings → OnyxAz, or import your setup document."
+            );
+        }
+        this.cancelInteractive(); // only one attempt at a time
+
+        const verifier = randomUrlSafe(32);
+        const state = randomUrlSafe(16);
+        const challenge = await pkceChallenge(verifier);
+
+        // Loopback listener on an ephemeral port. Entra treats http://localhost
+        // redirect URIs as port-agnostic (RFC 8252), so any port works as long as
+        // http://localhost is registered on the app.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const http = require("http") as typeof import("http");
+
+        const code = await new Promise<string>((resolve, reject) => {
+            let settled = false;
+            const done = (fn: () => void) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                this.interactiveCancel = null;
+                const srv = this.interactiveServer;
+                this.interactiveServer = null;
+                try { srv?.close(); } catch { /* ignore */ }
+                fn();
+            };
+
+            const timer = setTimeout(
+                () => done(() => reject(new Error("Sign-in timed out — no response from the browser after 5 minutes."))),
+                5 * 60 * 1000
+            );
+            this.interactiveCancel = () => done(() => reject(new Error("Sign-in cancelled.")));
+
+            const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
+                const url = new URL(req.url ?? "/", "http://localhost");
+                const finish = (body: string) => {
+                    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+                    res.end(`<!doctype html><body style="font-family:system-ui;padding:2rem"><h3>OnyxAz</h3><p>${body}</p></body>`);
+                };
+                const err = url.searchParams.get("error");
+                if (err) {
+                    finish("Sign-in failed — you can close this tab and return to Obsidian.");
+                    done(() => reject(new Error(url.searchParams.get("error_description") ?? err)));
+                    return;
+                }
+                const gotCode = url.searchParams.get("code");
+                if (!gotCode) { finish("Waiting for sign-in…"); return; } // favicon etc.
+                if (url.searchParams.get("state") !== state) {
+                    finish("Sign-in failed (state mismatch) — you can close this tab.");
+                    done(() => reject(new Error("State mismatch in sign-in response — try again.")));
+                    return;
+                }
+                finish("✅ Signed in — you can close this tab and return to Obsidian.");
+                done(() => resolve(gotCode));
+            });
+            this.interactiveServer = server;
+            server.on("error", (e: Error) => done(() => reject(new Error(`Couldn't start the local sign-in listener: ${e.message}`))));
+            server.listen(0, "127.0.0.1", () => {
+                const addr = server.address();
+                if (!addr || typeof addr === "string") {
+                    done(() => reject(new Error("Couldn't determine the local sign-in port.")));
+                    return;
+                }
+                const redirectUri = `http://localhost:${addr.port}/`;
+                const authorizeUrl = buildAuthorizeUrl({
+                    tenant: this.tenantId,
+                    clientId: this.clientId,
+                    redirectUri,
+                    scope: ENTRA_SCOPE,
+                    state,
+                    challenge,
+                });
+                this.interactiveRedirectUri = redirectUri;
+                window.open(authorizeUrl); // Obsidian routes this to the system browser
+            });
+        });
+
+        // Exchange the code for tokens (public client — PKCE verifier, no secret).
+        const body = new URLSearchParams({
+            grant_type: "authorization_code",
+            client_id: this.clientId,
+            code,
+            redirect_uri: this.interactiveRedirectUri,
+            code_verifier: verifier,
+            scope: ENTRA_SCOPE,
+        });
+        const resp = await requestUrl({
+            url: ENTRA_TOKEN_URL(this.tenantId),
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body.toString(),
+            throw: false,
+        });
+        const data = resp.json as TokenResponse;
+        if (resp.status >= 400 || data.error || !data.access_token) {
+            throw new Error(data.error_description ?? data.error ?? `Token exchange failed (HTTP ${resp.status}).`);
+        }
+        await this.storeToken(data);
+    }
+
+    cancelInteractive(): void {
+        this.interactiveCancel?.();
+    }
+
+    // ── Device-code sign-in (fallback) ────────────────────────────────────────
+    // Kept for machines where the browser hand-off can't work. Note: device code
+    // sign-ins carry no device identity, so tenants enforcing device-based
+    // Conditional Access will block them (AADSTS530033) — use the interactive
+    // flow or a PAT there.
 
     async startDeviceCodeFlow(): Promise<DeviceCodeResponse> {
         if (!this.clientId) {

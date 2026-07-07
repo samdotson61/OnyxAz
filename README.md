@@ -32,7 +32,9 @@ OnyxAz uses the Azure DevOps REST API directly (via Obsidian's cross-platform `r
 3. Supported account types: **Accounts in this organizational directory only**
 4. No redirect URI needed — click **Register**
 5. On the app overview page, copy the **Application (client) ID**
-6. Go to **Authentication → Add a platform → Mobile and desktop**, add `https://login.microsoftonline.com/common/oauth2/nativeclient` as a redirect URI, and enable **Allow public client flows**
+6. Go to **Authentication → Add a platform → Mobile and desktop**, tick / add these redirect URIs, and enable **Allow public client flows**:
+   - `http://localhost` — **required** for the default browser sign-in (authorization code + PKCE). Because sign-in happens in the user's real browser, device-based Conditional Access ("require compliant/managed device") is satisfied on managed machines.
+   - `https://login.microsoftonline.com/common/oauth2/nativeclient` — used by the fallback code sign-in. Note the fallback carries no device identity, so device-compliance policies will block it (AADSTS530033).
 7. Go to **API permissions → Add a permission → APIs my organization uses** → search **Azure DevOps** → select **user_impersonation** → Add
 
 > The **tenant ID is detected automatically** from each user's email domain — you don't need to distribute it.
@@ -84,7 +86,7 @@ On the sign-in screen:
 1. If your IT team gave you a **setup document**, click **📋 Paste setup document to autofill** and paste it — the organization URL and client ID fill in automatically.
 2. Enter your **organization email** (e.g. `you@company.com`). Your tenant is detected from it automatically — no tenant ID to look up.
 3. Make sure the **Azure client ID** field is filled (autofilled from the setup document, or type it from your admin).
-4. Click **Sign in with Microsoft**. A device code appears — open the link, enter the code, and sign in. Token refresh is automatic afterward.
+4. Click **Sign in with Microsoft**. Your browser opens — sign in there, then return to Obsidian. Token refresh is automatic afterward. (If the browser hand-off can't complete, use **"Browser sign-in not working? Use a code instead"** for the code-based fallback.)
 
 ### Step 3 — Pick a repository
 
@@ -278,7 +280,7 @@ OnyxAz uses the [Azure DevOps Git REST API v7.1](https://learn.microsoft.com/en-
 
 **Push:** Scans the vault using the adapter (not just Obsidian's indexed files) to find all files inside the sync folder. Compares modification times against the last sync timestamp to detect changes, then uploads everything as a single ADO commit via the pushes API. Binary files are base64-encoded.
 
-**Auth:** Microsoft Entra uses the OAuth 2.0 device code flow against `login.microsoftonline.com`. The access token is refreshed automatically using the stored refresh token. PAT auth uses HTTP Basic with a blank username.
+**Auth:** Microsoft Entra sign-in uses the OAuth 2.0 authorization code flow with PKCE — OnyxAz opens your system browser and catches the redirect on a local loopback listener, so device-based Conditional Access policies are honored. A device-code flow remains as a fallback for environments where the browser hand-off can't complete (note: it carries no device identity). The access token is refreshed automatically using the stored refresh token. PAT auth uses HTTP Basic with a blank username.
 
 **Sync state** is stored in `.onyxaz/state.json` and records the last commit ID, last sync timestamp, remote object IDs for every file, and the current sync folder path. If the sync folder path changes, the state is automatically invalidated and a Force re-pull is needed.
 

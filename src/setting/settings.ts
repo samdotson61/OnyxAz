@@ -70,33 +70,49 @@ export class OnyxAzSettingsTab extends PluginSettingTab {
         } else {
             new Setting(containerEl)
                 .setName("Microsoft account")
-                .setDesc("Sign in with your work account to sync with Azure DevOps.")
+                .setDesc(
+                    "Sign in with your work account to sync with Azure DevOps. Opens your browser — " +
+                    "works with device-compliance policies. Use the code option only if the browser hand-off fails."
+                )
                 .addButton((btn) =>
                     btn
                         .setButtonText("Sign in with Microsoft")
                         .setCta()
                         .onClick(async () => {
-                            btn.setButtonText("Starting…");
+                            btn.setButtonText("Waiting for browser…");
                             btn.setDisabled(true);
                             try {
-                                const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
-                                this.deviceCode = dcr;
-                                this.authFlowActive = true;
-                                this.display();
-
-                                await this.plugin.entraAuth.pollForToken(dcr);
-
-                                this.authFlowActive = false;
-                                this.deviceCode = null;
+                                await this.plugin.entraAuth.signInInteractive();
                                 this.display();
                                 new Notice("OnyxAz: Signed in with Microsoft successfully.");
                             } catch (e) {
-                                this.authFlowActive = false;
-                                this.deviceCode = null;
                                 this.display();
-                                new Notice(`OnyxAz: Sign-in failed — ${(e as Error).message}`);
+                                new Notice(`OnyxAz: Sign-in failed — ${(e as Error).message}`, 10000);
                             }
                         })
+                )
+                .addButton((btn) =>
+                    btn.setButtonText("Use a code instead").onClick(async () => {
+                        btn.setDisabled(true);
+                        try {
+                            const dcr = await this.plugin.entraAuth.startDeviceCodeFlow();
+                            this.deviceCode = dcr;
+                            this.authFlowActive = true;
+                            this.display();
+
+                            await this.plugin.entraAuth.pollForToken(dcr);
+
+                            this.authFlowActive = false;
+                            this.deviceCode = null;
+                            this.display();
+                            new Notice("OnyxAz: Signed in with Microsoft successfully.");
+                        } catch (e) {
+                            this.authFlowActive = false;
+                            this.deviceCode = null;
+                            this.display();
+                            new Notice(`OnyxAz: Sign-in failed — ${(e as Error).message}`, 10000);
+                        }
+                    })
                 );
         }
     }
