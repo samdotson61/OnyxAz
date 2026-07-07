@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, ONYXAZ_REPO_RAW, REPO_PULL_CONCURRENCY } from "./cons
 import { compareVersions } from "./util/version";
 import { mapLimit } from "./util/concurrency";
 import { mergeTargets, targetKey } from "./util/targets";
+import { resolveSafeStorage, encryptSecret, decryptSecret } from "./util/secureStore";
 import type { FileStatus, OnyxAzSettings, RepoTarget, SyncStatus } from "./types";
 import { CurrentAdoAction } from "./types";
 import { AdoApiManager } from "./adoManager/adoApiManager";
@@ -117,12 +118,25 @@ export default class OnyxAz extends Plugin {
 
     // ── Settings ─────────────────────────────────────────────────────────────
 
+    // Secrets (tokens/PAT) are encrypted at rest via the OS keychain: decrypted
+    // into memory on load, encrypted copies written on save. Plaintext values
+    // from older versions load transparently and are encrypted on the next save.
+    private secretCipher = resolveSafeStorage();
+    private static readonly SECRET_KEYS = ["entraAccessToken", "entraRefreshToken", "pat"] as const;
+
     async loadSettings(): Promise<void> {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        for (const k of OnyxAz.SECRET_KEYS) {
+            this.settings[k] = decryptSecret(this.settings[k], this.secretCipher);
+        }
     }
 
     async saveSettings(): Promise<void> {
-        await this.saveData(this.settings);
+        const onDisk = { ...this.settings };
+        for (const k of OnyxAz.SECRET_KEYS) {
+            onDisk[k] = encryptSecret(onDisk[k], this.secretCipher);
+        }
+        await this.saveData(onDisk);
     }
 
     // ── Commands ──────────────────────────────────────────────────────────────

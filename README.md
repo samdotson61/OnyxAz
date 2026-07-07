@@ -282,6 +282,8 @@ OnyxAz uses the [Azure DevOps Git REST API v7.1](https://learn.microsoft.com/en-
 
 **Auth:** Microsoft Entra sign-in uses the OAuth 2.0 authorization code flow with PKCE — OnyxAz opens your system browser and catches the redirect on a local loopback listener, so device-based Conditional Access policies are honored. A device-code flow remains as a fallback for environments where the browser hand-off can't complete (note: it carries no device identity). The access token is refreshed automatically using the stored refresh token. PAT auth uses HTTP Basic with a blank username.
 
+**Secrets at rest:** tokens and PATs are encrypted with the OS keychain (Electron `safeStorage` — DPAPI on Windows, Keychain on macOS, libsecret on Linux) before being written to `data.json`, so vault sync/backup never carries usable credentials. Values encrypted on one machine can't be decrypted on another — you simply sign in again there. If the keychain is unavailable the plugin degrades to plaintext rather than locking you out.
+
 **Sync state** is stored in `.onyxaz/state.json` and records the last commit ID, last sync timestamp, remote object IDs for every file, and the current sync folder path. If the sync folder path changes, the state is automatically invalidated and a Force re-pull is needed.
 
 ---

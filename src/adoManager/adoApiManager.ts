@@ -806,6 +806,33 @@ export class AdoApiManager extends AdoManager {
             }
         };
 
+        // Upstream deletions: files we tracked at last sync that are gone from
+        // the remote tree. Deleted locally only when the local content still
+        // matches the last-synced blob (i.e. the user never touched it) — same
+        // safety rule as `git pull`. Locally-modified files are kept and counted
+        // so the user hears about it instead of silently losing either version.
+        let deleted = 0;
+        let keptModified = 0;
+        if (state) {
+            for (const rel of Object.keys(state.remoteObjectIds)) {
+                if (rel in newIds || !this.shouldSyncFile(rel)) continue;
+                const full = normalizePath(folder + rel);
+                if (!(await adapter.exists(full))) continue; // already gone locally
+                if (await this.localMatchesRemote(full, state.remoteObjectIds[rel])) {
+                    // Prefer vault.delete (respects the user's trash setting);
+                    // fall back to the adapter for non-indexed files.
+                    const af = this.plugin.app.vault.getAbstractFileByPath(full);
+                    try {
+                        if (af) await this.plugin.app.vault.delete(af);
+                        else await adapter.remove(full);
+                        deleted++;
+                    } catch { /* leave it; next pull retries */ }
+                } else {
+                    keptModified++;
+                }
+            }
+        }
+
         const failedFirst: string[] = [];
         await mapLimit(toDownload, PULL_CONCURRENCY, async (rel) => {
             if (!(await downloadOne(rel))) failedFirst.push(rel);
@@ -831,6 +858,12 @@ export class AdoApiManager extends AdoManager {
                 `Raise "Large-file timeout" in Settings → OnyxAz, then Pull again.`,
                 10000
             );
+        }
+        if (deleted > 0 || keptModified > 0) {
+            let msg = `OnyxAz: ${t.repo} · ${t.branch} —`;
+            if (deleted > 0) msg += ` removed ${deleted} file(s) deleted on ADO.`;
+            if (keptModified > 0) msg += ` Kept ${keptModified} locally-modified file(s) whose remote was deleted — push or delete them yourself.`;
+            new Notice(msg, 8000);
         }
         if (onSkipped && skippedConflicts > 0) onSkipped(skippedConflicts);
         return n;
